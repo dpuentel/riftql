@@ -1,6 +1,6 @@
 # T-007 — Response Viewer
 
-- **Status:** `TODO`
+- **Status:** `IN_PROGRESS`
 - **Area:** UI / Response
 
 ## Scope

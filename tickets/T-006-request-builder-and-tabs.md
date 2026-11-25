@@ -1,6 +1,6 @@
 # T-006 — CodeMirror 6 Wrapper, Multi-Tab Bar & REST Request Builder
 
-- **Status:** `IN_PROGRESS`
+- **Status:** `DONE`
 - **Area:** UI / Request
 
 ## Scope

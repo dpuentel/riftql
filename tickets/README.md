@@ -11,8 +11,8 @@ Track MVP execution and post-MVP backlog items. Every ticket maps to atomic Git 
 | [T-003](./T-003-sqlite-persistence-layer.md) | Rust SQLite persistence layer & migrations | Backend / DB | `DONE` |
 | [T-004](./T-004-http-engine-and-cookie-jar.md) | Rust HTTP engine, RFC Cookie Jar, multipart streaming & cancel | Backend / HTTP | `DONE` |
 | [T-005](./T-005-variables-and-auth-resolution.md) | Domain types, variable engine, auth inheritance & Zustand stores | Core / State | `DONE` |
-| [T-006](./T-006-request-builder-and-tabs.md) | CodeMirror 6 wrapper, multi-tab bar & REST request builder | UI / Request | `IN_PROGRESS` |
-| [T-007](./T-007-response-viewer.md) | Response viewer (metrics, formatted body, headers, cookies, binary/images) | UI / Response | `TODO` |
+| [T-006](./T-006-request-builder-and-tabs.md) | CodeMirror 6 wrapper, multi-tab bar & REST request builder | UI / Request | `DONE` |
+| [T-007](./T-007-response-viewer.md) | Response viewer (metrics, formatted body, headers, cookies, binary/images) | UI / Response | `IN_PROGRESS` |
 | [T-008](./T-008-graphql-and-schema-docs.md) | Native GraphQL editor (`cm6-graphql`), multi-op & Schema Docs | UI / GraphQL | `TODO` |
 | [T-009](./T-009-collections-environments-history.md) | Sidebar (collections, nested folders, history, envs) & Cookie Jar modal | UI / Workspace | `TODO` |
 | [T-010](./T-010-curl-import-and-code-snippets.md) | cURL import (URL bar auto-paste + modal) & multi-language code snippets | Features / Snippets | `TODO` |
