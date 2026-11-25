@@ -1,6 +1,6 @@
 # T-012 — End-to-End Verification, Build Check & Documentation
 
-- **Status:** `TODO`
+- **Status:** `IN_PROGRESS`
 - **Area:** QA / Release
 
 ## Scope

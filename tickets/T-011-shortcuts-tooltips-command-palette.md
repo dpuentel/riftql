@@ -1,6 +1,6 @@
 # T-011 — Customizable Shortcuts, Tooltips, Command Palette & Settings
 
-- **Status:** `IN_PROGRESS`
+- **Status:** `DONE`
 - **Area:** UX / Keyboard
 
 ## Scope
