@@ -1,6 +1,6 @@
 # T-010 — cURL Import & Code Snippet Generator
 
-- **Status:** `TODO`
+- **Status:** `IN_PROGRESS`
 - **Area:** Features / Snippets
 
 ## Scope

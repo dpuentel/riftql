@@ -1,10 +1,14 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { App } from '@/App';
 
 describe('RiftQL smoke test', () => {
-  it('renders bootstrap shell with RiftQL brand', () => {
+  it('renders RiftQL workspace shell', async () => {
     render(<App />);
-    expect(screen.getByText('RiftQL')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('RiftQL')).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText('Request URL')).toBeInTheDocument();
+    expect(screen.getByLabelText('Workspace sidebar')).toBeInTheDocument();
   });
 });

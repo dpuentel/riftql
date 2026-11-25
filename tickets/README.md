@@ -14,8 +14,8 @@ Track MVP execution and post-MVP backlog items. Every ticket maps to atomic Git 
 | [T-006](./T-006-request-builder-and-tabs.md) | CodeMirror 6 wrapper, multi-tab bar & REST request builder | UI / Request | `DONE` |
 | [T-007](./T-007-response-viewer.md) | Response viewer (metrics, formatted body, headers, cookies, binary/images) | UI / Response | `DONE` |
 | [T-008](./T-008-graphql-and-schema-docs.md) | Native GraphQL editor (`cm6-graphql`), multi-op & Schema Docs | UI / GraphQL | `DONE` |
-| [T-009](./T-009-collections-environments-history.md) | Sidebar (collections, nested folders, history, envs) & Cookie Jar modal | UI / Workspace | `IN_PROGRESS` |
-| [T-010](./T-010-curl-import-and-code-snippets.md) | cURL import (URL bar auto-paste + modal) & multi-language code snippets | Features / Snippets | `TODO` |
+| [T-009](./T-009-collections-environments-history.md) | Sidebar (collections, nested folders, history, envs) & Cookie Jar modal | UI / Workspace | `DONE` |
+| [T-010](./T-010-curl-import-and-code-snippets.md) | cURL import (URL bar auto-paste + modal) & multi-language code snippets | Features / Snippets | `IN_PROGRESS` |
 | [T-011](./T-011-shortcuts-tooltips-command-palette.md) | Customizable shortcuts, shortcut-aware tooltips, Command Palette & Settings | UX / Keyboard | `TODO` |
 | [T-012](./T-012-e2e-verification-and-polish.md) | End-to-end verification, Windows Tauri build, README & final polish | QA / Release | `TODO` |
 
