@@ -1,6 +1,6 @@
 # T-004 — Rust HTTP Engine, RFC Cookie Jar, Multipart Streaming & Cancellation
 
-- **Status:** `TODO`
+- **Status:** `IN_PROGRESS`
 - **Area:** Backend / HTTP
 
 ## Scope

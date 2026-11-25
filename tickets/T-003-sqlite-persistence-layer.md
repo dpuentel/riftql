@@ -1,6 +1,6 @@
 # T-003 — Rust SQLite Persistence Layer & Migrations
 
-- **Status:** `IN_PROGRESS`
+- **Status:** `DONE`
 - **Area:** Backend / DB
 
 ## Scope

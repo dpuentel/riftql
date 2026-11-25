@@ -8,8 +8,8 @@ Track MVP execution and post-MVP backlog items. Every ticket maps to atomic Git 
 | --- | --- | --- | --- |
 | [T-001](./T-001-bootstrap-tooling-and-tauri.md) | Bootstrap tooling, Git, tickets & Tauri v2 workspace | Infra / Setup | `DONE` |
 | [T-002](./T-002-branding-theme-and-layout.md) | Branding tokens, theme engine, RiftLogo & UI primitives | UI / Design System | `DONE` |
-| [T-003](./T-003-sqlite-persistence-layer.md) | Rust SQLite persistence layer & migrations | Backend / DB | `IN_PROGRESS` |
-| [T-004](./T-004-http-engine-and-cookie-jar.md) | Rust HTTP engine, RFC Cookie Jar, multipart streaming & cancel | Backend / HTTP | `TODO` |
+| [T-003](./T-003-sqlite-persistence-layer.md) | Rust SQLite persistence layer & migrations | Backend / DB | `DONE` |
+| [T-004](./T-004-http-engine-and-cookie-jar.md) | Rust HTTP engine, RFC Cookie Jar, multipart streaming & cancel | Backend / HTTP | `IN_PROGRESS` |
 | [T-005](./T-005-variables-and-auth-resolution.md) | Domain types, variable engine, auth inheritance & Zustand stores | Core / State | `TODO` |
 | [T-006](./T-006-request-builder-and-tabs.md) | CodeMirror 6 wrapper, multi-tab bar & REST request builder | UI / Request | `TODO` |
 | [T-007](./T-007-response-viewer.md) | Response viewer (metrics, formatted body, headers, cookies, binary/images) | UI / Response | `TODO` |
