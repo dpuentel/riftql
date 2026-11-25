@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <defs>
+    <linearGradient id="riftGlow" x1="120" y1="80" x2="392" y2="432" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#A78BFA" />
+      <stop offset="50%" stop-color="#8B5CF6" />
+      <stop offset="100%" stop-color="#6D28D9" />
+    </linearGradient>
+    <clipPath id="roundedSquare">
+      <rect x="48" y="48" width="416" height="416" rx="96" />
+    </clipPath>
+  </defs>
+  <rect x="48" y="48" width="416" height="416" rx="96" fill="#09090B" />
+  <g clip-path="url(#roundedSquare)">
+    <!-- Upper-left slab -->
+    <polygon points="48,48 336,48 156,464 48,464" fill="#18181B" />
+    <!-- Lower-right slab -->
+    <polygon points="368,48 464,48 464,464 188,464" fill="#27272A" />
+    <!-- Diagonal Rift light beam -->
+    <polygon points="324,48 380,48 198,464 142,464" fill="url(#riftGlow)" />
+  </g>
+  <rect x="49" y="49" width="414" height="414" rx="95" stroke="#27272A" stroke-width="4" />
+</svg>

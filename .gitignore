@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+dist-ssr/
+*.local
+
+# Tauri & Rust
+src-tauri/target/
+src-tauri/gen/
+src-tauri/WixTools/
+
+# Local databases & runtime files
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Test & coverage
+coverage/
+.vitest/
+
+# Environment & OS
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+.vscode/
+!.vscode/extensions.json
