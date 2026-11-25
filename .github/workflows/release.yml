@@ -40,6 +40,8 @@ jobs:
   build:
     name: Build (${{ matrix.artifact_name }})
     needs: test
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -114,9 +116,9 @@ jobs:
         run: pnpm tauri build ${{ matrix.args }}
 
       - name: Upload built installers as workflow artifacts
-        if: github.event_name == 'workflow_dispatch'
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: riftql-${{ matrix.artifact_name }}
           path: src-tauri/target/**/release/bundle/**/*
-          if-no-files-found: error
+          if-no-files-found: warn
