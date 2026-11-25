@@ -95,6 +95,19 @@ All shortcuts can be customized in **Settings → Shortcuts** (`Ctrl+,` / `⌘,`
 
 ---
 
+## Automated CI & Multi-Platform Releases (GitHub Actions)
+
+- **CI ([.github/workflows/ci.yml](./.github/workflows/ci.yml)):** Runs on every push/PR to `main` (`pnpm typecheck`, `pnpm test`, `pnpm build`, and `cargo test` on `ubuntu-22.04` and `windows-latest`).
+- **Release Binaries ([.github/workflows/release.yml](./.github/workflows/release.yml)):** Compiles native installers for **Windows (`x64`: `.msi` / `.exe`)**, **Linux (`x64`: `.deb` / `.rpm` / `.AppImage`)**, and **macOS (`arm64` & `x64`: `.dmg`)**:
+  - **Tag Release (Draft GitHub Release):**
+    ```bash
+    git tag v0.1.0
+    git push origin v0.1.0
+    ```
+  - **Manual Build (Workflow Artifacts):** Trigger **Actions → Release Binaries → Run workflow** (`workflow_dispatch`) to compile and download binaries directly from the run artifacts without creating a release tag.
+
+---
+
 ## Project Tracking & Roadmap
 
 - Ticket board & v2 backlog (`Git-friendly sync`, `Postman/OpenAPI importers`, `JS scripting runtime`, `GraphQL WS/SSE subscriptions & mTLS`): [tickets/README.md](./tickets/README.md)

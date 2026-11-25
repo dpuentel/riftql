@@ -18,6 +18,7 @@ Track MVP execution and post-MVP backlog items. Every ticket maps to atomic Git 
 | [T-010](./T-010-curl-import-and-code-snippets.md) | cURL import (URL bar auto-paste + modal) & multi-language code snippets | Features / Snippets | `DONE` |
 | [T-011](./T-011-shortcuts-tooltips-command-palette.md) | Customizable shortcuts, shortcut-aware tooltips, Command Palette & Settings | UX / Keyboard | `DONE` |
 | [T-012](./T-012-e2e-verification-and-polish.md) | End-to-end verification, Windows Tauri build, README & final polish | QA / Release | `DONE` |
+| [T-013](./T-013-github-actions-ci-and-release.md) | GitHub Actions CI tests & multi-platform Tauri binary releases | Infra / CI-CD | `DONE` |
 
 ---
 
