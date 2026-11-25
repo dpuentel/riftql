@@ -1,6 +1,6 @@
 # T-008 — Native GraphQL Editor & Schema Docs Explorer
 
-- **Status:** `IN_PROGRESS`
+- **Status:** `DONE`
 - **Area:** UI / GraphQL
 
 ## Scope

@@ -1,6 +1,6 @@
 # T-009 — Sidebar, Collections Tree, Environments & Cookie Jar Modal
 
-- **Status:** `TODO`
+- **Status:** `IN_PROGRESS`
 - **Area:** UI / Workspace
 
 ## Scope

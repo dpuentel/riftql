@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { AuthEditor } from '@/components/request/AuthEditor';
 import { BodyEditor } from '@/components/request/BodyEditor';
+import { GraphQLEditor } from '@/components/request/GraphQLEditor';
 import { KeyValueEditor } from '@/components/request/KeyValueEditor';
 import { ActionTooltip } from '@/components/ui/action-tooltip';
 import { Badge } from '@/components/ui/badge';
@@ -413,13 +414,11 @@ export function RequestPane({
         </TabsList>
 
         {draft.protocol === 'graphql' && (
-          <TabsContent value="graphql" className="p-3">
+          <TabsContent value="graphql" className="flex min-h-0 flex-col p-3">
             {renderGraphQLEditor ? (
               renderGraphQLEditor(draft, (updater) => updateDraft(tab.id, updater), tab.id)
             ) : (
-              <div className="flex h-full items-center justify-center rounded-md border border-dashed border-[var(--border-subtle)] text-xs text-[var(--text-secondary)]">
-                GraphQL editor ready
-              </div>
+              <GraphQLEditor />
             )}
           </TabsContent>
         )}

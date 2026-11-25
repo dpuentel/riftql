@@ -48,4 +48,36 @@ describe('RequestPane and TabBar', () => {
     await user.click(screen.getByRole('button', { name: /new request tab/i }));
     expect(useTabsStore.getState().tabs).toHaveLength(2);
   });
+
+  it('renders GraphQLEditor with cm6-graphql and operation selector when protocol is graphql', () => {
+    useTabsStore.setState({
+      tabs: [
+        {
+          id: 'tab-gql',
+          title: 'GQL',
+          isDirty: false,
+          draft: {
+            ...createEmptyDraft('graphql'),
+            url: 'https://api.test/graphql',
+            graphql: {
+              query: 'query GetMe { me { id } }\nmutation UpdateMe { updateMe { id } }',
+              variables: '{}',
+            },
+          },
+          isLoading: false,
+        },
+      ],
+      activeTabId: 'tab-gql',
+    });
+
+    render(
+      <TooltipProvider>
+        <RequestPane />
+      </TooltipProvider>,
+    );
+
+    expect(screen.getByRole('button', { name: /fetch schema/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /docs/i })).toBeInTheDocument();
+    expect(screen.getByLabelText('Operation')).toBeInTheDocument();
+  });
 });
