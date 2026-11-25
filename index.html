@@ -3,9 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      (function () {
+        try {
+          var pref = localStorage.getItem('riftql-theme') || 'dark';
+          var meta = document.querySelector('meta[name="color-scheme"]');
+          var root = document.documentElement;
+          if (pref === 'system') {
+            var isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            root.classList.toggle('dark', isDark);
+            root.classList.toggle('light', !isDark);
+            if (meta) meta.setAttribute('content', 'light dark');
+          } else {
+            var dark = pref === 'dark';
+            root.classList.toggle('dark', dark);
+            root.classList.toggle('light', !dark);
+            if (meta) meta.setAttribute('content', dark ? 'dark' : 'light');
+          }
+        } catch (e) {}
+      })();
+    </script>
     <title>RiftQL</title>
   </head>
-  <body class="bg-background text-foreground antialiased selection:bg-violet-500/30">
+  <body class="bg-[var(--bg-base)] text-[var(--text-primary)] antialiased selection:bg-[#8B5CF6]/30">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

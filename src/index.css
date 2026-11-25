@@ -1,16 +1,154 @@
 @import "tailwindcss";
 
-:root {
-  --bg-base: #09090B;
-  --bg-surface: #121316;
-  --border-subtle: #27272A;
-  --accent: #8B5CF6;
-  --text-primary: #F4F4F5;
-  --text-secondary: #A1A1AA;
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --color-background: var(--bg-base);
+  --color-surface: var(--bg-surface);
+  --color-border: var(--border-subtle);
+  --color-accent: var(--accent);
+  --color-foreground: var(--text-primary);
+  --color-muted: var(--text-secondary);
 }
 
-body {
+:root {
+  color-scheme: light dark;
+
+  --bg-base: #FAFAFA;
+  --bg-surface: #FFFFFF;
+  --bg-elevated: #F4F4F5;
+  --bg-hover: rgba(9, 9, 11, 0.045);
+  --border-subtle: #E4E4E7;
+  --border-strong: #D4D4D8;
+  --accent: #7C3AED;
+  --accent-hover: #6D28D9;
+  --accent-muted: rgba(124, 58, 237, 0.12);
+  --text-primary: #09090B;
+  --text-secondary: #71717A;
+  --text-tertiary: #A1A1AA;
+
+  --scrollbar-thumb: rgba(113, 113, 122, 0.35);
+  --scrollbar-track: transparent;
+
+  --cm-bg: #FFFFFF;
+  --cm-gutter-bg: #FAFAFA;
+  --cm-gutter-text: #A1A1AA;
+  --cm-active-line: rgba(124, 58, 237, 0.05);
+  --cm-selection: rgba(124, 58, 237, 0.18);
+
+  accent-color: light-dark(#7C3AED, #8B5CF6);
+}
+
+:root:has(> head > meta[name="color-scheme"][content="dark"]),
+:root.dark {
+  color-scheme: dark;
+
+  --bg-base: #09090B;
+  --bg-surface: #121316;
+  --bg-elevated: #18191D;
+  --bg-hover: rgba(244, 244, 245, 0.05);
+  --border-subtle: #27272A;
+  --border-strong: #3F3F46;
+  --accent: #8B5CF6;
+  --accent-hover: #7C3AED;
+  --accent-muted: rgba(139, 92, 246, 0.16);
+  --text-primary: #F4F4F5;
+  --text-secondary: #A1A1AA;
+  --text-tertiary: #71717A;
+
+  --scrollbar-thumb: rgba(161, 161, 170, 0.28);
+  --scrollbar-track: transparent;
+
+  --cm-bg: #121316;
+  --cm-gutter-bg: #121316;
+  --cm-gutter-text: #52525B;
+  --cm-active-line: rgba(139, 92, 246, 0.06);
+  --cm-selection: rgba(139, 92, 246, 0.25);
+}
+
+:root:has(> head > meta[name="color-scheme"][content="light"]),
+:root.light {
+  color-scheme: light;
+}
+
+* {
+  border-color: var(--border-subtle);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
   background-color: var(--bg-base);
   color: var(--text-primary);
-  font-family: "Inter Variable", system-ui, sans-serif;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.font-mono-code {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom thin scrollbars adhering to modern-web-guidance */
+.rift-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+@supports not (scrollbar-color: auto) {
+  .rift-scroll {
+    scrollbar-width: auto;
+  }
+
+  .rift-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .rift-scroll::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
+
+  .rift-scroll::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 9999px;
+  }
+}
+
+/* Prevent scroll chaining behind modal surfaces */
+[role="dialog"],
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+/* Subtle checkered background for inline image preview */
+.rift-checkerboard {
+  background-image:
+    linear-gradient(45deg, var(--border-subtle) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--border-subtle) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--border-subtle) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--border-subtle) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+/* Focus visible ring matching RiftQL accent */
+:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 1px;
 }

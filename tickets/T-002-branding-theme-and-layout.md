@@ -1,6 +1,6 @@
 # T-002 — Branding Tokens, Theme Engine, RiftLogo & UI Primitives
 
-- **Status:** `IN_PROGRESS`
+- **Status:** `DONE`
 - **Area:** UI / Design System
 
 ## Scope
