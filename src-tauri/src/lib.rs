@@ -1,11 +1,13 @@
 pub mod commands;
 pub mod db;
 pub mod error;
+pub mod http;
 pub mod models;
 
 use tauri::Manager;
 
 use crate::db::Database;
+use crate::http::client::{InFlightRegistry, ResponseBodyCache};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -19,6 +21,8 @@ pub fn run() {
             let db_path = app_data_dir.join("riftql.db");
             let database = Database::open(&db_path).expect("failed to open RiftQL SQLite database");
             app.manage(database);
+            app.manage(InFlightRegistry::default());
+            app.manage(ResponseBodyCache::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -46,6 +50,9 @@ pub fn run() {
             commands::cookies::delete_cookie_cmd,
             commands::cookies::clear_cookies_by_domain_cmd,
             commands::cookies::clear_all_cookies_cmd,
+            commands::http::send_http_request_cmd,
+            commands::http::cancel_http_request_cmd,
+            commands::http::save_response_body_to_file_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running RiftQL");

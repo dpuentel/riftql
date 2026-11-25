@@ -1,6 +1,6 @@
 # T-005 — Domain Types, Variable Engine, Auth Inheritance & Zustand Stores
 
-- **Status:** `TODO`
+- **Status:** `IN_PROGRESS`
 - **Area:** Core / State
 
 ## Scope
