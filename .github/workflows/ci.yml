@@ -68,7 +68,8 @@ jobs:
           workspaces: './src-tauri -> target'
 
       - name: Ensure dist placeholder exists for Tauri macro
-        run: node -e "require('fs').mkdirSync('dist', { recursive: true })"
+        shell: bash
+        run: mkdir -p dist
 
       - name: Run Cargo tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
