@@ -70,6 +70,16 @@ interface WorkspaceState {
     sortOrder?: number;
   }) => Promise<SavedRequestRecord>;
   renameSavedRequest: (id: string, name: string) => Promise<SavedRequestRecord | undefined>;
+  moveSavedRequest: (
+    id: string,
+    targetCollectionId: string,
+    targetFolderId?: string,
+  ) => Promise<SavedRequestRecord | undefined>;
+  moveFolder: (
+    id: string,
+    targetCollectionId: string,
+    targetParentId?: string,
+  ) => Promise<string[]>;
   deleteSavedRequest: (id: string) => Promise<void>;
 
   upsertEnvironment: (input: {
@@ -340,6 +350,96 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       draft,
       sortOrder: existing.sortOrder,
     });
+  },
+
+  moveSavedRequest: async (id, targetCollectionId, targetFolderId) => {
+    const existing = get().savedRequests.find((r) => r.id === id);
+    if (!existing) return undefined;
+
+    const updated = await tryInvoke<SavedRequestRecord>(
+      'move_saved_request_cmd',
+      {
+        id,
+        targetCollectionId,
+        targetFolderId: targetFolderId ?? null,
+      },
+      () => ({
+        ...existing,
+        collectionId: targetCollectionId,
+        folderId: targetFolderId,
+        updatedAt: nowIso(),
+      }),
+    );
+
+    set((state) => ({
+      savedRequests: state.savedRequests.map((r) => (r.id === updated.id ? updated : r)),
+    }));
+    return updated;
+  },
+
+  moveFolder: async (id, targetCollectionId, targetParentId) => {
+    const folders = get().folders;
+    const targetFolder = folders.find((f) => f.id === id);
+    if (!targetFolder) return [];
+
+    // Guard against cycles
+    const subtree = new Set<string>([id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const f of folders) {
+        if (f.parentId && subtree.has(f.parentId) && !subtree.has(f.id)) {
+          subtree.add(f.id);
+          grew = true;
+        }
+      }
+    }
+    if (targetParentId && subtree.has(targetParentId)) {
+      throw new Error('Cannot move a folder inside itself or one of its descendants');
+    }
+
+    const movedRequestIds = get()
+      .savedRequests.filter((r) => r.folderId && subtree.has(r.folderId))
+      .map((r) => r.id);
+
+    await tryInvoke<void>(
+      'move_folder_cmd',
+      {
+        id,
+        targetCollectionId,
+        targetParentId: targetParentId ?? null,
+      },
+      () => undefined,
+    );
+
+    const ts = nowIso();
+    set((state) => ({
+      folders: state.folders.map((f) => {
+        if (f.id === id) {
+          return {
+            ...f,
+            collectionId: targetCollectionId,
+            parentId: targetParentId,
+            updatedAt: ts,
+          };
+        }
+        if (subtree.has(f.id)) {
+          return {
+            ...f,
+            collectionId: targetCollectionId,
+            updatedAt: ts,
+          };
+        }
+        return f;
+      }),
+      savedRequests: state.savedRequests.map((r) =>
+        r.folderId && subtree.has(r.folderId)
+          ? { ...r, collectionId: targetCollectionId, updatedAt: ts }
+          : r,
+      ),
+    }));
+
+    return movedRequestIds;
   },
 
   deleteSavedRequest: async (id) => {

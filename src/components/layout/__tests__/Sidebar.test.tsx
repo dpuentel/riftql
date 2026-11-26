@@ -1,7 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { Sidebar } from '@/components/layout/Sidebar';
+import { Sidebar, canDropDraggedItem } from '@/components/layout/Sidebar';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { setTauriBridgeAdapter } from '@/lib/tauri';
 import { DEFAULT_SETTINGS, useSettingsStore } from '@/store/useSettingsStore';
@@ -144,5 +144,148 @@ describe('Sidebar collections, subfolders, delete folder, and rename actions', (
     expect(useWorkspaceStore.getState().savedRequests).toHaveLength(0);
     expect(useTabsStore.getState().tabs[0]?.savedRequestId).toBeUndefined();
     expect(useTabsStore.getState().tabs[0]?.folderId).toBeUndefined();
+  });
+
+  it('supports drag and drop for requests and folders across folders and collections while preventing cycles', async () => {
+    const user = userEvent.setup();
+    useWorkspaceStore.setState({
+      collections: [
+        {
+          id: 'col-1',
+          name: 'Users API',
+          description: '',
+          auth: { type: 'none' },
+          variables: [],
+          sortOrder: 0,
+          createdAt: '',
+          updatedAt: '',
+        },
+        {
+          id: 'col-2',
+          name: 'Billing API',
+          description: '',
+          auth: { type: 'none' },
+          variables: [],
+          sortOrder: 1,
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
+      folders: [
+        {
+          id: 'folder-1',
+          collectionId: 'col-1',
+          name: 'Accounts',
+          auth: { type: 'inherit' },
+          sortOrder: 0,
+          createdAt: '',
+          updatedAt: '',
+        },
+        {
+          id: 'folder-1-child',
+          collectionId: 'col-1',
+          parentId: 'folder-1',
+          name: 'SubAccounts',
+          auth: { type: 'inherit' },
+          sortOrder: 0,
+          createdAt: '',
+          updatedAt: '',
+        },
+        {
+          id: 'folder-2',
+          collectionId: 'col-2',
+          name: 'Invoices',
+          auth: { type: 'inherit' },
+          sortOrder: 0,
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
+      savedRequests: [
+        {
+          id: 'req-1',
+          collectionId: 'col-1',
+          folderId: 'folder-1',
+          name: 'Get Profile',
+          protocol: 'rest',
+          method: 'GET',
+          url: 'https://api.test/me',
+          params: [],
+          headers: [],
+          auth: { type: 'inherit' },
+          body: { mode: 'none' },
+          graphql: { query: '', variables: '{}' },
+          settings: {},
+          sortOrder: 0,
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
+    });
+
+    // Cycle protection: folder-1 cannot be dropped onto its descendant folder-1-child
+    expect(
+      canDropDraggedItem(
+        { kind: 'folder', id: 'folder-1' },
+        { kind: 'folder', collectionId: 'col-1', folderId: 'folder-1-child' },
+        useWorkspaceStore.getState().folders,
+        useWorkspaceStore.getState().savedRequests,
+      ),
+    ).toBe(false);
+
+    const { container } = renderSidebar();
+    await user.click(screen.getByText('Users API'));
+    await user.click(screen.getByText('Accounts'));
+    await user.click(screen.getByText('Billing API'));
+
+    const reqRow = screen.getByText('Get Profile').closest('[draggable="true"]') as HTMLElement;
+    const invoicesDrop = container.querySelector('[data-drop-target="folder:folder-2"]') as HTMLElement;
+    const billingRootDrop = container.querySelector(
+      '[data-drop-target="collection:col-2"]',
+    ) as HTMLElement;
+
+    // Drag Get Profile -> Billing API / Invoices folder
+    fireEvent.dragStart(reqRow);
+    fireEvent.dragOver(invoicesDrop);
+    fireEvent.drop(invoicesDrop);
+
+    await waitFor(() => {
+      const movedReq = useWorkspaceStore.getState().savedRequests.find((r) => r.id === 'req-1');
+      expect(movedReq?.collectionId).toBe('col-2');
+      expect(movedReq?.folderId).toBe('folder-2');
+      expect(useTabsStore.getState().tabs[0]?.collectionId).toBe('col-2');
+      expect(useTabsStore.getState().tabs[0]?.folderId).toBe('folder-2');
+    });
+
+    // Drag Get Profile -> Billing API collection root
+    const movedReqRow = screen
+      .getByText('Get Profile')
+      .closest('[draggable="true"]') as HTMLElement;
+    fireEvent.dragStart(movedReqRow);
+    fireEvent.dragOver(billingRootDrop);
+    fireEvent.drop(billingRootDrop);
+
+    await waitFor(() => {
+      const rootReq = useWorkspaceStore.getState().savedRequests.find((r) => r.id === 'req-1');
+      expect(rootReq?.collectionId).toBe('col-2');
+      expect(rootReq?.folderId).toBeUndefined();
+      expect(useTabsStore.getState().tabs[0]?.folderId).toBeUndefined();
+    });
+
+    // Drag Accounts folder -> Billing API collection root (also moves descendant SubAccounts)
+    const accountsRow = container.querySelector(
+      '[data-drop-target="folder:folder-1"]',
+    ) as HTMLElement;
+    fireEvent.dragStart(accountsRow);
+    fireEvent.dragOver(billingRootDrop);
+    fireEvent.drop(billingRootDrop);
+
+    await waitFor(() => {
+      const accounts = useWorkspaceStore.getState().folders.find((f) => f.id === 'folder-1');
+      const sub = useWorkspaceStore.getState().folders.find((f) => f.id === 'folder-1-child');
+      expect(accounts?.collectionId).toBe('col-2');
+      expect(accounts?.parentId).toBeUndefined();
+      expect(sub?.collectionId).toBe('col-2');
+    });
   });
 });

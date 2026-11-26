@@ -40,7 +40,60 @@ import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { createEmptyDraft, useTabsStore } from '@/store/useTabsStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
-import type { CollectionRecord, FolderRecord, HistoryEntry } from '@/types/storage';
+import type { CollectionRecord, FolderRecord, HistoryEntry, SavedRequestRecord } from '@/types/storage';
+
+export type DragPayload =
+  | { kind: 'request'; id: string }
+  | { kind: 'folder'; id: string };
+
+export type DropTarget =
+  | { kind: 'collection'; collectionId: string }
+  | { kind: 'folder'; collectionId: string; folderId: string };
+
+export function canDropDraggedItem(
+  dragged: DragPayload,
+  target: DropTarget,
+  folders: FolderRecord[],
+  savedRequests: SavedRequestRecord[],
+): boolean {
+  if (dragged.kind === 'request') {
+    const req = savedRequests.find((r) => r.id === dragged.id);
+    if (!req) return false;
+    const targetFolderId = target.kind === 'folder' ? target.folderId : undefined;
+    if (
+      req.collectionId === target.collectionId &&
+      (req.folderId ?? undefined) === targetFolderId
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  const fld = folders.find((f) => f.id === dragged.id);
+  if (!fld) return false;
+
+  if (target.kind === 'collection') {
+    return !(fld.collectionId === target.collectionId && !fld.parentId);
+  }
+
+  if (target.folderId === fld.id) return false;
+  if (
+    fld.collectionId === target.collectionId &&
+    (fld.parentId ?? undefined) === target.folderId
+  ) {
+    return false;
+  }
+
+  const folderMap = new Map(folders.map((f) => [f.id, f]));
+  const visited = new Set<string>();
+  let cursor: string | undefined = target.folderId;
+  while (cursor && !visited.has(cursor)) {
+    if (cursor === fld.id) return false;
+    visited.add(cursor);
+    cursor = folderMap.get(cursor)?.parentId;
+  }
+  return true;
+}
 
 interface SidebarProps {
   onOpenEnvironments: () => void;
@@ -102,7 +155,11 @@ export function Sidebar({
   const [renamingItem, setRenamingItem] = React.useState<RenameTarget | null>(null);
   const [renameDraft, setRenameDraft] = React.useState('');
   const [confirmDelete, setConfirmDelete] = React.useState<RenameTarget | null>(null);
+  const [draggedItem, setDraggedItem] = React.useState<DragPayload | null>(null);
+  const [dropTarget, setDropTarget] = React.useState<DropTarget | null>(null);
   const skipRenameBlurRef = React.useRef(false);
+  const draggedItemRef = React.useRef<DragPayload | null>(null);
+  const hoverExpandTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const collections = useWorkspaceStore((s) => s.collections);
   const folders = useWorkspaceStore((s) => s.folders);
@@ -117,12 +174,16 @@ export function Sidebar({
   const deleteFolder = useWorkspaceStore((s) => s.deleteFolder);
   const upsertSavedRequest = useWorkspaceStore((s) => s.upsertSavedRequest);
   const renameSavedRequest = useWorkspaceStore((s) => s.renameSavedRequest);
+  const moveSavedRequest = useWorkspaceStore((s) => s.moveSavedRequest);
+  const moveFolder = useWorkspaceStore((s) => s.moveFolder);
   const deleteSavedRequest = useWorkspaceStore((s) => s.deleteSavedRequest);
   const clearHistory = useWorkspaceStore((s) => s.clearHistory);
 
   const openSavedRequest = useTabsStore((s) => s.openSavedRequest);
   const openHistoryEntry = useTabsStore((s) => s.openHistoryEntry);
   const syncSavedRequestRename = useTabsStore((s) => s.syncSavedRequestRename);
+  const syncMovedSavedRequest = useTabsStore((s) => s.syncMovedSavedRequest);
+  const syncMovedCollectionRequests = useTabsStore((s) => s.syncMovedCollectionRequests);
   const detachDeletedSavedRequests = useTabsStore((s) => s.detachDeletedSavedRequests);
   const activeSavedRequestId = useTabsStore(
     (s) => s.tabs.find((t) => t.id === s.activeTabId)?.savedRequestId,
@@ -294,6 +355,120 @@ export function Sidebar({
     openSavedRequest(saved);
   };
 
+  const clearHoverExpand = () => {
+    if (hoverExpandTimerRef.current) {
+      clearTimeout(hoverExpandTimerRef.current);
+      hoverExpandTimerRef.current = null;
+    }
+  };
+
+  React.useEffect(() => () => clearHoverExpand(), []);
+
+  const scheduleHoverExpand = (containerId: string) => {
+    if (expandedIds.has(containerId)) return;
+    clearHoverExpand();
+    hoverExpandTimerRef.current = setTimeout(() => {
+      setExpandedIds((prev) => new Set(prev).add(containerId));
+    }, 450);
+  };
+
+  const clearDragState = () => {
+    clearHoverExpand();
+    draggedItemRef.current = null;
+    setDraggedItem(null);
+    setDropTarget(null);
+  };
+
+  const resolveDragPayload = (e: React.DragEvent): DragPayload | null => {
+    if (draggedItemRef.current) return draggedItemRef.current;
+    try {
+      const raw = e.dataTransfer?.getData('text/plain');
+      if (!raw) return null;
+      const parsed: unknown = JSON.parse(raw);
+      if (
+        parsed &&
+        typeof parsed === 'object' &&
+        'kind' in parsed &&
+        'id' in parsed &&
+        (parsed.kind === 'request' || parsed.kind === 'folder') &&
+        typeof parsed.id === 'string'
+      ) {
+        return { kind: parsed.kind, id: parsed.id };
+      }
+    } catch {
+      // Ignore invalid or restricted drag payload
+    }
+    return null;
+  };
+
+  const handleDragStartItem = (e: React.DragEvent, payload: DragPayload) => {
+    e.stopPropagation();
+    draggedItemRef.current = payload;
+    setDraggedItem(payload);
+    try {
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', JSON.stringify(payload));
+      }
+    } catch {
+      // Ignore synthetic DragEvent implementations without dataTransfer setters
+    }
+  };
+
+  const handleDragOverTarget = (e: React.DragEvent, target: DropTarget) => {
+    const payload = resolveDragPayload(e);
+    if (!payload || !canDropDraggedItem(payload, target, folders, savedRequests)) {
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'move';
+      }
+    } catch {
+      // Ignore read-only dataTransfer in test runners
+    }
+    setDropTarget(target);
+    scheduleHoverExpand(target.kind === 'folder' ? target.folderId : target.collectionId);
+  };
+
+  const handleDragLeaveTarget = (e: React.DragEvent) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    clearHoverExpand();
+    setDropTarget(null);
+  };
+
+  const handleDropOnTarget = async (e: React.DragEvent, target: DropTarget) => {
+    const payload = resolveDragPayload(e);
+    clearDragState();
+    if (!payload || !canDropDraggedItem(payload, target, folders, savedRequests)) {
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      next.add(target.collectionId);
+      if (target.kind === 'folder') next.add(target.folderId);
+      return next;
+    });
+
+    if (payload.kind === 'request') {
+      const targetFolderId = target.kind === 'folder' ? target.folderId : undefined;
+      const moved = await moveSavedRequest(payload.id, target.collectionId, targetFolderId);
+      if (moved) {
+        syncMovedSavedRequest(moved.id, moved.collectionId, moved.folderId);
+      }
+      return;
+    }
+
+    const targetParentId = target.kind === 'folder' ? target.folderId : undefined;
+    const movedReqIds = await moveFolder(payload.id, target.collectionId, targetParentId);
+    syncMovedCollectionRequests(new Set(movedReqIds), target.collectionId);
+  };
+
   const q = search.trim().toLowerCase();
   const newCollectionShortcut = formatShortcutForDisplay(
     getEffectiveShortcuts(settings.customShortcuts).newCollection,
@@ -320,14 +495,38 @@ export function Sidebar({
             renamingItem?.kind === 'folder' && renamingItem.id === folder.id;
           const isConfirmingDelete =
             confirmDelete?.kind === 'folder' && confirmDelete.id === folder.id;
+          const folderTarget: DropTarget = {
+            kind: 'folder',
+            collectionId,
+            folderId: folder.id,
+          };
+          const isDraggedFolder =
+            draggedItem?.kind === 'folder' && draggedItem.id === folder.id;
+          const isFolderDropActive =
+            dropTarget?.kind === 'folder' && dropTarget.folderId === folder.id;
 
           return (
             <div key={folder.id}>
               <ContextMenu>
                 <ContextMenuTrigger asChild>
                   <div
+                    draggable={!isRenaming && !isConfirmingDelete}
+                    onDragStart={(e) =>
+                      handleDragStartItem(e, { kind: 'folder', id: folder.id })
+                    }
+                    onDragEnd={clearDragState}
+                    onDragOver={(e) => handleDragOverTarget(e, folderTarget)}
+                    onDragLeave={handleDragLeaveTarget}
+                    onDrop={(e) => void handleDropOnTarget(e, folderTarget)}
+                    data-drop-target={`folder:${folder.id}`}
                     style={{ paddingLeft: `${depth * 12}px` }}
-                    className="group flex items-center gap-1 rounded px-1.5 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                    className={cn(
+                      'group flex items-center gap-1 rounded px-1.5 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+                      !isRenaming && !isConfirmingDelete && 'cursor-grab active:cursor-grabbing',
+                      isDraggedFolder && 'opacity-50',
+                      isFolderDropActive &&
+                        'bg-[var(--accent-muted)] ring-1 ring-inset ring-[var(--accent)]',
+                    )}
                   >
                     {isRenaming ? (
                       <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -497,14 +696,23 @@ export function Sidebar({
           const isSelected = activeSavedRequestId === req.id;
           const isRenaming =
             renamingItem?.kind === 'request' && renamingItem.id === req.id;
+          const isDraggedRequest =
+            draggedItem?.kind === 'request' && draggedItem.id === req.id;
 
           return (
             <ContextMenu key={req.id}>
               <ContextMenuTrigger asChild>
                 <div
+                  draggable={!isRenaming}
+                  onDragStart={(e) =>
+                    handleDragStartItem(e, { kind: 'request', id: req.id })
+                  }
+                  onDragEnd={clearDragState}
                   style={{ paddingLeft: `${depth * 12 + 16}px` }}
                   className={cn(
                     'group flex items-center gap-1.5 rounded px-1.5 py-1 text-xs transition-colors',
+                    !isRenaming && 'cursor-grab active:cursor-grabbing',
+                    isDraggedRequest && 'opacity-50',
                     isSelected
                       ? 'bg-[var(--accent-muted)] text-[var(--text-primary)]'
                       : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
@@ -745,12 +953,28 @@ export function Sidebar({
                     renamingItem?.kind === 'collection' && renamingItem.id === col.id;
                   const isConfirmingDelete =
                     confirmDelete?.kind === 'collection' && confirmDelete.id === col.id;
+                  const colTarget: DropTarget = {
+                    kind: 'collection',
+                    collectionId: col.id,
+                  };
+                  const isCollectionDropActive =
+                    dropTarget?.kind === 'collection' && dropTarget.collectionId === col.id;
 
                   return (
                     <div key={col.id}>
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
-                          <div className="group flex items-center gap-1 rounded px-1.5 py-1 text-xs hover:bg-[var(--bg-hover)]">
+                          <div
+                            onDragOver={(e) => handleDragOverTarget(e, colTarget)}
+                            onDragLeave={handleDragLeaveTarget}
+                            onDrop={(e) => void handleDropOnTarget(e, colTarget)}
+                            data-drop-target={`collection:${col.id}`}
+                            className={cn(
+                              'group flex items-center gap-1 rounded px-1.5 py-1 text-xs hover:bg-[var(--bg-hover)]',
+                              isCollectionDropActive &&
+                                'bg-[var(--accent-muted)] ring-1 ring-inset ring-[var(--accent)]',
+                            )}
+                          >
                             {isRenaming ? (
                               <div className="flex min-w-0 flex-1 items-center gap-1.5">
                                 <Input

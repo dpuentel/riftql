@@ -1,8 +1,8 @@
 use tauri::State;
 
 use crate::db::collections::{
-    delete_collection, delete_folder, delete_saved_request, upsert_collection, upsert_folder,
-    upsert_saved_request,
+    delete_collection, delete_folder, delete_saved_request, move_folder, move_saved_request,
+    upsert_collection, upsert_folder, upsert_saved_request,
 };
 use crate::db::environments::{
     delete_environment, export_workspace, import_workspace, upsert_environment,
@@ -89,6 +89,35 @@ pub fn upsert_saved_request_cmd(
 #[tauri::command]
 pub fn delete_saved_request_cmd(db: State<Database>, id: String) -> AppResult<()> {
     db.with_conn(|conn| delete_saved_request(conn, &id))
+}
+
+#[tauri::command]
+pub fn move_saved_request_cmd(
+    db: State<Database>,
+    id: String,
+    target_collection_id: String,
+    target_folder_id: Option<String>,
+) -> AppResult<SavedRequestRecord> {
+    db.with_conn(|conn| {
+        move_saved_request(
+            conn,
+            &id,
+            &target_collection_id,
+            target_folder_id.as_deref(),
+        )
+    })
+}
+
+#[tauri::command]
+pub fn move_folder_cmd(
+    db: State<Database>,
+    id: String,
+    target_collection_id: String,
+    target_parent_id: Option<String>,
+) -> AppResult<()> {
+    db.with_conn(|conn| {
+        move_folder(conn, &id, &target_collection_id, target_parent_id.as_deref())
+    })
 }
 
 #[tauri::command]

@@ -170,6 +170,12 @@ interface TabsState {
   updateDraft: (tabId: string, updater: (draft: RequestDraft) => RequestDraft) => void;
   renameTab: (tabId: string, name: string) => void;
   syncSavedRequestRename: (savedRequestId: string, name: string) => void;
+  syncMovedSavedRequest: (
+    savedRequestId: string,
+    collectionId: string,
+    folderId: string | undefined,
+  ) => void;
+  syncMovedCollectionRequests: (movedRequestIds: Set<string>, collectionId: string) => void;
   detachDeletedSavedRequests: (deletedIds: Set<string>) => void;
   markTabSaved: (tabId: string, saved: SavedRequestRecord) => void;
   setTabResponse: (tabId: string, response: HttpExecutionResponse | undefined) => void;
@@ -420,6 +426,38 @@ export const useTabsStore = create<TabsState>((set, get) => ({
         ...tab,
         title: trimmed,
         draft: { ...tab.draft, name: trimmed },
+      };
+    });
+    if (!changed) return;
+    set({ tabs: nextTabs });
+    scheduleSessionPersist(nextTabs, get().activeTabId);
+  },
+
+  syncMovedSavedRequest: (savedRequestId, collectionId, folderId) => {
+    let changed = false;
+    const nextTabs = get().tabs.map((tab) => {
+      if (tab.savedRequestId !== savedRequestId) return tab;
+      changed = true;
+      return {
+        ...tab,
+        collectionId,
+        folderId,
+      };
+    });
+    if (!changed) return;
+    set({ tabs: nextTabs });
+    scheduleSessionPersist(nextTabs, get().activeTabId);
+  },
+
+  syncMovedCollectionRequests: (movedRequestIds, collectionId) => {
+    if (movedRequestIds.size === 0) return;
+    let changed = false;
+    const nextTabs = get().tabs.map((tab) => {
+      if (!tab.savedRequestId || !movedRequestIds.has(tab.savedRequestId)) return tab;
+      changed = true;
+      return {
+        ...tab,
+        collectionId,
       };
     });
     if (!changed) return;

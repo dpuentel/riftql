@@ -44,6 +44,8 @@ pub fn run() {
             commands::storage::delete_folder_cmd,
             commands::storage::upsert_saved_request_cmd,
             commands::storage::delete_saved_request_cmd,
+            commands::storage::move_saved_request_cmd,
+            commands::storage::move_folder_cmd,
             commands::storage::upsert_environment_cmd,
             commands::storage::delete_environment_cmd,
             commands::storage::list_history_cmd,

@@ -594,3 +594,157 @@ pub fn delete_saved_request(conn: &Connection, id: &str) -> AppResult<()> {
     conn.execute("DELETE FROM saved_requests WHERE id = ?1", params![id])?;
     Ok(())
 }
+
+pub fn move_saved_request(
+    conn: &Connection,
+    request_id: &str,
+    target_collection_id: &str,
+    target_folder_id: Option<&str>,
+) -> AppResult<SavedRequestRecord> {
+    let col_exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM collections WHERE id = ?1)",
+        params![target_collection_id],
+        |row| row.get(0),
+    )?;
+    if !col_exists {
+        return Err(AppError::NotFound(format!(
+            "Target collection {target_collection_id} not found"
+        )));
+    }
+
+    if let Some(folder_id) = target_folder_id {
+        let folder_col: Option<String> = conn
+            .query_row(
+                "SELECT collection_id FROM folders WHERE id = ?1",
+                params![folder_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        match folder_col {
+            None => {
+                return Err(AppError::NotFound(format!(
+                    "Target folder {folder_id} not found"
+                )));
+            }
+            Some(col_id) if col_id != target_collection_id => {
+                return Err(AppError::Validation(
+                    "Target folder does not belong to target collection".to_string(),
+                ));
+            }
+            _ => {}
+        }
+    }
+
+    let now = Utc::now().to_rfc3339();
+    let updated = conn.execute(
+        "UPDATE saved_requests
+         SET collection_id = ?2, folder_id = ?3, updated_at = ?4
+         WHERE id = ?1",
+        params![request_id, target_collection_id, target_folder_id, now],
+    )?;
+
+    if updated == 0 {
+        return Err(AppError::NotFound(format!(
+            "Saved request {request_id} not found"
+        )));
+    }
+
+    list_saved_requests(conn)?
+        .into_iter()
+        .find(|r| r.id == request_id)
+        .ok_or_else(|| AppError::NotFound(format!("Saved request {request_id} not found")))
+}
+
+pub fn move_folder(
+    conn: &mut Connection,
+    folder_id: &str,
+    target_collection_id: &str,
+    target_parent_id: Option<&str>,
+) -> AppResult<()> {
+    let tx = conn.transaction()?;
+
+    let folder_exists: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM folders WHERE id = ?1)",
+        params![folder_id],
+        |row| row.get(0),
+    )?;
+    if !folder_exists {
+        return Err(AppError::NotFound(format!("Folder {folder_id} not found")));
+    }
+
+    let col_exists: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM collections WHERE id = ?1)",
+        params![target_collection_id],
+        |row| row.get(0),
+    )?;
+    if !col_exists {
+        return Err(AppError::NotFound(format!(
+            "Target collection {target_collection_id} not found"
+        )));
+    }
+
+    if let Some(pid) = target_parent_id {
+        let parent_col: Option<String> = tx
+            .query_row(
+                "SELECT collection_id FROM folders WHERE id = ?1",
+                params![pid],
+                |row| row.get(0),
+            )
+            .optional()?;
+        match parent_col {
+            None => {
+                return Err(AppError::NotFound(format!(
+                    "Target parent folder {pid} not found"
+                )));
+            }
+            Some(col_id) if col_id != target_collection_id => {
+                return Err(AppError::Validation(
+                    "Target parent folder does not belong to target collection".to_string(),
+                ));
+            }
+            _ => {}
+        }
+    }
+
+    ensure_no_folder_cycle(&tx, folder_id, target_parent_id)?;
+
+    let mut subtree_ids = vec![folder_id.to_string()];
+    let mut idx = 0;
+    while idx < subtree_ids.len() {
+        let current = subtree_ids[idx].clone();
+        idx += 1;
+        let mut stmt = tx.prepare("SELECT id FROM folders WHERE parent_id = ?1")?;
+        let children = stmt.query_map(params![current], |row| row.get::<_, String>(0))?;
+        for child in children {
+            let cid = child?;
+            if !subtree_ids.contains(&cid) {
+                subtree_ids.push(cid);
+            }
+        }
+    }
+
+    let now = Utc::now().to_rfc3339();
+    tx.execute(
+        "UPDATE folders
+         SET collection_id = ?2, parent_id = ?3, updated_at = ?4
+         WHERE id = ?1",
+        params![folder_id, target_collection_id, target_parent_id, now],
+    )?;
+
+    for desc_id in &subtree_ids[1..] {
+        tx.execute(
+            "UPDATE folders SET collection_id = ?2, updated_at = ?3 WHERE id = ?1",
+            params![desc_id, target_collection_id, now],
+        )?;
+    }
+
+    for sub_id in &subtree_ids {
+        tx.execute(
+            "UPDATE saved_requests SET collection_id = ?2, updated_at = ?3 WHERE folder_id = ?1",
+            params![sub_id, target_collection_id, now],
+        )?;
+    }
+
+    tx.commit()?;
+    Ok(())
+}

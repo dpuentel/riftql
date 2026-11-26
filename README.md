@@ -24,6 +24,7 @@
   - Tabular metrics (`status`, `ms`, `KB/MB`, redirect count), searchable Headers tab, parsed Response Cookies tab, inline image preview, binary download cache, and lightweight preview mode for payloads > 5 MB.
 - **Local-First Organization & Snippets**:
   - SQLite persistence (`collections`, arbitrarily nested `folders`, `saved_requests`, `environments`, `history_entries` capped at 200 entries / 500 KB bodies, open `session_tabs`, `cookies`, `app_settings`).
+  - Per-folder & per-collection **Base URL inheritance** (composed across nested folders, with variable support and full-URL override) and **drag-and-drop** reorganization of requests and folders across folders and collections.
   - Variable precedence: `Active Environment > Collection > Global` plus built-in dynamic variables (`{{$uuid}}`, `{{$timestamp}}`, `{{$isoTimestamp}}`, `{{$randomInt}}`), secret masking (`••••`), and secret-stripped JSON export.
   - **cURL Importer** (modal + auto-detect paste in the URL bar) and **Code Snippet Generator** (`cURL`, `fetch`, `axios`, `Python requests`, `HTTPie`).
 - **Keyboard-First UX**:

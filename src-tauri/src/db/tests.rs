@@ -2,8 +2,8 @@ use chrono::Utc;
 use tempfile::TempDir;
 
 use crate::db::collections::{
-    delete_collection, list_collections, list_folders, list_saved_requests, upsert_collection,
-    upsert_folder, upsert_saved_request,
+    delete_collection, list_collections, list_folders, list_saved_requests, move_folder,
+    move_saved_request, upsert_collection, upsert_folder, upsert_saved_request,
 };
 use crate::db::cookies::{
     clear_cookies_by_domain, delete_cookie, list_cookies, upsert_cookie, upsert_cookies_batch,
@@ -602,6 +602,99 @@ fn base_url_persists_on_collections_folders_and_roundtrips_export() {
             assert_eq!(folders2[0].base_url, "/v2");
             Ok(())
         })?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn move_saved_request_and_folder_updates_collections_atomically_and_prevents_cycles() {
+    let db = Database::open_in_memory().unwrap();
+    db.with_conn(|conn| {
+        let col_a = upsert_collection(
+            conn,
+            None,
+            "Workspace A".into(),
+            "".into(),
+            None,
+            AuthConfig::None,
+            vec![],
+            None,
+        )?;
+        let col_b = upsert_collection(
+            conn,
+            None,
+            "Workspace B".into(),
+            "".into(),
+            None,
+            AuthConfig::None,
+            vec![],
+            None,
+        )?;
+
+        let f_parent = upsert_folder(
+            conn,
+            None,
+            col_a.id.clone(),
+            None,
+            "Parent".into(),
+            None,
+            AuthConfig::Inherit,
+            None,
+        )?;
+        let f_child = upsert_folder(
+            conn,
+            None,
+            col_a.id.clone(),
+            Some(f_parent.id.clone()),
+            "Child".into(),
+            None,
+            AuthConfig::Inherit,
+            None,
+        )?;
+        let req_root = upsert_saved_request(
+            conn,
+            None,
+            col_a.id.clone(),
+            None,
+            sample_draft("RootReq", "https://api.test/root"),
+            None,
+        )?;
+        let req_nested = upsert_saved_request(
+            conn,
+            None,
+            col_a.id.clone(),
+            Some(f_child.id.clone()),
+            sample_draft("NestedReq", "https://api.test/nested"),
+            None,
+        )?;
+
+        // Mismatched collection/folder is rejected
+        assert!(
+            move_saved_request(conn, &req_root.id, &col_b.id, Some(&f_parent.id)).is_err()
+        );
+
+        // Move root request into col_b root
+        let moved_req = move_saved_request(conn, &req_root.id, &col_b.id, None)?;
+        assert_eq!(moved_req.collection_id, col_b.id);
+        assert_eq!(moved_req.folder_id, None);
+
+        // Self/descendant folder cycle move is rejected
+        assert!(move_folder(conn, &f_parent.id, &col_a.id, Some(&f_child.id)).is_err());
+
+        // Move folder subtree (f_parent + f_child + req_nested) from Workspace A into Workspace B
+        move_folder(conn, &f_parent.id, &col_b.id, None)?;
+
+        let all_folders = list_folders(conn)?;
+        assert!(all_folders.iter().all(|f| f.collection_id == col_b.id));
+
+        let updated_nested = list_saved_requests(conn)?
+            .into_iter()
+            .find(|r| r.id == req_nested.id)
+            .unwrap();
+        assert_eq!(updated_nested.collection_id, col_b.id);
+        assert_eq!(updated_nested.folder_id, Some(f_child.id));
+
         Ok(())
     })
     .unwrap();
