@@ -224,7 +224,7 @@ jobs:
             fi
             gh api -X POST "https://uploads.github.com/repos/${REPO}/releases/${RELEASE_ID}/assets?name=latest.json" \
               -H "Content-Type: application/json" \
-              --data-binary @latest.json
+              --input latest.json
           fi
 
       - name: Publish release
