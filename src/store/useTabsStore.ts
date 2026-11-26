@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid';
 import { create } from 'zustand';
 import { applyAuthToRequest, resolveEffectiveAuth } from '@/lib/auth';
+import { resolveEffectiveBaseUrl, resolveRequestUrl } from '@/lib/base-url';
 import { invokeCommand } from '@/lib/tauri';
 import { resolveVariables, type VariableResolutionContext } from '@/lib/variables';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -494,7 +495,17 @@ export const useTabsStore = create<TabsState>((set, get) => ({
     };
     const resolve = (raw: string) => resolveVariables(raw, varCtx);
 
-    const resolvedUrlBase = resolve(tab.draft.url.trim());
+    const inheritedBase = resolveEffectiveBaseUrl(
+      tab.folderId,
+      tab.collectionId,
+      workspace.folders,
+      workspace.collections,
+    );
+    const resolvedUrlBase = resolveRequestUrl(
+      tab.draft.url,
+      inheritedBase.baseUrl,
+      resolve,
+    );
     if (!resolvedUrlBase) {
       set((state) => ({
         tabs: state.tabs.map((t) =>

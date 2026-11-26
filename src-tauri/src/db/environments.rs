@@ -209,6 +209,7 @@ pub fn import_workspace(conn: &mut Connection, payload: WorkspaceExport) -> AppR
             Some(col.id),
             col.name,
             col.description,
+            Some(col.base_url),
             col.auth,
             col.variables,
             Some(col.sort_order),
@@ -239,6 +240,7 @@ pub fn import_workspace(conn: &mut Connection, payload: WorkspaceExport) -> AppR
                     folder.collection_id,
                     folder.parent_id,
                     folder.name,
+                    Some(folder.base_url),
                     folder.auth,
                     Some(folder.sort_order),
                 )?;

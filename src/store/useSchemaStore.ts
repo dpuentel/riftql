@@ -1,6 +1,7 @@
 import type { GraphQLSchema } from 'graphql';
 import { create } from 'zustand';
 import { applyAuthToRequest, resolveEffectiveAuth } from '@/lib/auth';
+import { resolveEffectiveBaseUrl, resolveRequestUrl } from '@/lib/base-url';
 import {
   INTROSPECTION_QUERY,
   buildSchemaFromIntrospection,
@@ -29,6 +30,7 @@ interface SchemaState {
 export function resolveEndpointKey(
   rawUrl: string,
   collectionId?: string,
+  folderId?: string,
 ): string {
   const settings = useSettingsStore.getState().settings;
   const workspace = useWorkspaceStore.getState();
@@ -45,7 +47,14 @@ export function resolveEndpointKey(
     activeEnvironment: activeEnv,
     collectionVariables: collection?.variables,
   };
-  const resolved = resolveVariables(rawUrl.trim(), ctx);
+  const resolve = (s: string) => resolveVariables(s, ctx);
+  const inheritedBase = resolveEffectiveBaseUrl(
+    folderId,
+    collectionId,
+    workspace.folders,
+    workspace.collections,
+  );
+  const resolved = resolveRequestUrl(rawUrl, inheritedBase.baseUrl, resolve);
   if (!resolved) return '';
   return resolved.startsWith('http://') || resolved.startsWith('https://')
     ? resolved
@@ -92,7 +101,7 @@ export const useSchemaStore = create<SchemaState>((set, get) => ({
       collectionVariables: collection?.variables,
     };
     const resolve = (s: string) => resolveVariables(s, varCtx);
-    const endpoint = resolveEndpointKey(tab.draft.url, tab.collectionId);
+    const endpoint = resolveEndpointKey(tab.draft.url, tab.collectionId, tab.folderId);
     if (!endpoint) {
       return undefined;
     }

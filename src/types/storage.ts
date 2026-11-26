@@ -23,6 +23,7 @@ export interface CollectionRecord {
   id: string;
   name: string;
   description: string;
+  baseUrl?: string;
   auth: AuthConfig;
   variables: EnvironmentVariable[];
   sortOrder: number;
@@ -35,6 +36,7 @@ export interface FolderRecord {
   collectionId: string;
   parentId?: string;
   name: string;
+  baseUrl?: string;
   auth: AuthConfig;
   sortOrder: number;
   createdAt: string;

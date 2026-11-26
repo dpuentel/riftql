@@ -120,6 +120,18 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 "#;
 
+fn column_exists(conn: &Connection, table: &str, column: &str) -> AppResult<bool> {
+    let sql = format!("PRAGMA table_info({table})");
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    for col in rows {
+        if col? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 pub fn run_migrations(conn: &Connection) -> AppResult<()> {
     conn.execute_batch(
         "PRAGMA foreign_keys = ON;
@@ -139,6 +151,29 @@ pub fn run_migrations(conn: &Connection) -> AppResult<()> {
     if !v1_applied {
         conn.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (1, ?1)",
+            params![now],
+        )?;
+    }
+
+    let v2_applied: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = 2)",
+        [],
+        |row| row.get(0),
+    )?;
+
+    if !v2_applied {
+        if !column_exists(conn, "collections", "base_url")? {
+            conn.execute_batch(
+                "ALTER TABLE collections ADD COLUMN base_url TEXT NOT NULL DEFAULT '';",
+            )?;
+        }
+        if !column_exists(conn, "folders", "base_url")? {
+            conn.execute_batch(
+                "ALTER TABLE folders ADD COLUMN base_url TEXT NOT NULL DEFAULT '';",
+            )?;
+        }
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (2, ?1)",
             params![now],
         )?;
     }

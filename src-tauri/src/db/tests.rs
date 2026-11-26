@@ -63,6 +63,7 @@ fn nested_folders_prevent_cycles_and_cascade_on_delete() {
             None,
             "Core API".into(),
             "Main endpoints".into(),
+            Some("https://api.example.com".into()),
             AuthConfig::Bearer {
                 token: "col-secret".into(),
             },
@@ -75,6 +76,7 @@ fn nested_folders_prevent_cycles_and_cascade_on_delete() {
             col.id.clone(),
             None,
             "Users".into(),
+            Some("/v1".into()),
             AuthConfig::Inherit,
             None,
         )?;
@@ -84,6 +86,7 @@ fn nested_folders_prevent_cycles_and_cascade_on_delete() {
             col.id.clone(),
             Some(root_folder.id.clone()),
             "Admin".into(),
+            Some("/admin".into()),
             AuthConfig::Inherit,
             None,
         )?;
@@ -95,6 +98,7 @@ fn nested_folders_prevent_cycles_and_cascade_on_delete() {
             col.id.clone(),
             Some(child_folder.id.clone()),
             "Users".into(),
+            None,
             AuthConfig::Inherit,
             None,
         );
@@ -360,6 +364,7 @@ fn workspace_export_strips_secrets_and_roundtrips_cleanly() {
             None,
             "Billing".into(),
             "".into(),
+            Some("https://billing.api.local".into()),
             AuthConfig::None,
             vec![EnvironmentVariable {
                 id: "cv1".into(),
@@ -447,6 +452,7 @@ fn configurable_data_directory_migrates_persists_and_resets_safely() {
                     None,
                     "Existing Target".into(),
                     "".into(),
+                    None,
                     AuthConfig::None,
                     vec![],
                     None,
@@ -465,6 +471,7 @@ fn configurable_data_directory_migrates_persists_and_resets_safely() {
             None,
             "Migrated API".into(),
             "".into(),
+            None,
             AuthConfig::None,
             vec![],
             None,
@@ -553,4 +560,49 @@ fn linux_appimage_desktop_entry_includes_startup_wm_class_and_icon() {
     assert!(desktop_text.contains("StartupWMClass=com.riftql.app"));
     assert!(desktop_text.contains("TryExec=/home/user/Apps/RiftQL_0.1.0_amd64.AppImage"));
     assert!(desktop_text.contains(&format!("Icon={}", icon_path.to_string_lossy())));
+}
+
+#[test]
+fn base_url_persists_on_collections_folders_and_roundtrips_export() {
+    let db = Database::open_in_memory().unwrap();
+    db.with_conn(|conn| {
+        run_migrations(conn)?;
+
+        let col = upsert_collection(
+            conn,
+            None,
+            "Payments".into(),
+            "".into(),
+            Some("https://api.payments.test".into()),
+            AuthConfig::None,
+            vec![],
+            None,
+        )?;
+        assert_eq!(col.base_url, "https://api.payments.test");
+
+        let folder = upsert_folder(
+            conn,
+            None,
+            col.id.clone(),
+            None,
+            "V2".into(),
+            Some("/v2".into()),
+            AuthConfig::Inherit,
+            None,
+        )?;
+        assert_eq!(folder.base_url, "/v2");
+
+        let exported = export_workspace(conn)?;
+        let db2 = Database::open_in_memory()?;
+        db2.with_conn(|conn2| {
+            import_workspace(conn2, exported)?;
+            let cols2 = list_collections(conn2)?;
+            let folders2 = list_folders(conn2)?;
+            assert_eq!(cols2[0].base_url, "https://api.payments.test");
+            assert_eq!(folders2[0].base_url, "/v2");
+            Ok(())
+        })?;
+        Ok(())
+    })
+    .unwrap();
 }

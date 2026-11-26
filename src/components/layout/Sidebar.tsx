@@ -9,6 +9,7 @@ import {
   Globe,
   History,
   Layers,
+  Link2,
   Pencil,
   Plus,
   Search,
@@ -177,6 +178,7 @@ export function Sidebar({
           id: col.id,
           name: trimmed,
           description: col.description,
+          baseUrl: col.baseUrl,
           auth: col.auth,
           variables: col.variables,
           sortOrder: col.sortOrder,
@@ -193,6 +195,7 @@ export function Sidebar({
           collectionId: folder.collectionId,
           parentId: folder.parentId,
           name: trimmed,
+          baseUrl: folder.baseUrl,
           auth: folder.auth,
           sortOrder: folder.sortOrder,
         });
@@ -396,6 +399,11 @@ export function Sidebar({
                           <span className="truncate font-medium text-[var(--text-primary)]">
                             {folder.name}
                           </span>
+                          {folder.baseUrl?.trim() && (
+                            <span title={`Base URL: ${folder.baseUrl.trim()}`} className="shrink-0">
+                              <Link2 className="h-3 w-3 text-[var(--accent)]" />
+                            </span>
+                          )}
                         </button>
                         <div className={HOVER_ACTION_TRAY}>
                           <ActionTooltip label="New Request">
@@ -809,6 +817,11 @@ export function Sidebar({
                                     <ChevronRight className="h-3 w-3 shrink-0 text-[var(--text-secondary)]" />
                                   )}
                                   <span className="truncate">{col.name}</span>
+                                  {col.baseUrl?.trim() && (
+                                    <span title={`Base URL: ${col.baseUrl.trim()}`} className="shrink-0">
+                                      <Link2 className="h-3 w-3 text-[var(--accent)]" />
+                                    </span>
+                                  )}
                                 </button>
                                 <div className={HOVER_ACTION_TRAY}>
                                   <ActionTooltip label="New Request">

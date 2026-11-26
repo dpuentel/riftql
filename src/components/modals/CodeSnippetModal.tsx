@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { resolveEffectiveAuth } from '@/lib/auth';
+import { resolveEffectiveBaseUrl } from '@/lib/base-url';
 import {
   generateCodeSnippet,
   type CodeSnippetTarget,
@@ -62,6 +63,12 @@ export function CodeSnippetModal({ open, onOpenChange }: CodeSnippetModalProps) 
       folders,
       collections,
     );
+    const inheritedBase = resolveEffectiveBaseUrl(
+      tab.folderId,
+      tab.collectionId,
+      folders,
+      collections,
+    );
 
     return generateCodeSnippet(
       target,
@@ -74,6 +81,7 @@ export function CodeSnippetModal({ open, onOpenChange }: CodeSnippetModalProps) 
       {
         resolveVariables: resolveVars,
         effectiveAuth: effective.auth,
+        effectiveBaseUrl: inheritedBase.baseUrl,
       },
     );
   }, [tab, target, resolveVars, environments, activeEnvironmentId, collections, folders]);

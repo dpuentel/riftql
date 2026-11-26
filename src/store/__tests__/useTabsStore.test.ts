@@ -151,4 +151,58 @@ describe('useTabsStore', () => {
     expect(tab?.response?.status).toBe(200);
     expect(useWorkspaceStore.getState().history).toHaveLength(1);
   });
+
+  it('inherits and combines folder/collection baseUrl with variables when sending requests', async () => {
+    useWorkspaceStore.setState((s) => ({
+      ...s,
+      collections: [
+        {
+          id: 'col-base',
+          name: 'BaseAPI',
+          description: '',
+          baseUrl: 'https://api.example.com',
+          auth: { type: 'none' },
+          variables: [],
+          sortOrder: 0,
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
+      folders: [
+        {
+          id: 'fld-v2',
+          collectionId: 'col-base',
+          name: 'Users',
+          baseUrl: '/v2/users',
+          auth: { type: 'inherit' },
+          sortOrder: 0,
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
+    }));
+
+    const store = useTabsStore.getState();
+    const tab1 = store.newTab('rest', { url: '' });
+    const tab2 = store.newTab('rest', { url: '/active?limit=5' });
+    useTabsStore.setState((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.id === tab1 || t.id === tab2
+          ? { ...t, collectionId: 'col-base', folderId: 'fld-v2' }
+          : t,
+      ),
+    }));
+
+    await useTabsStore.getState().sendTabRequest(tab1);
+    let sent = invoked.filter((i) => i.cmd === 'send_http_request_cmd').pop();
+    expect((sent?.args?.request as HttpExecutionRequest).url).toBe(
+      'https://api.example.com/v2/users',
+    );
+
+    await useTabsStore.getState().sendTabRequest(tab2);
+    sent = invoked.filter((i) => i.cmd === 'send_http_request_cmd').pop();
+    expect((sent?.args?.request as HttpExecutionRequest).url).toBe(
+      'https://api.example.com/v2/users/active?limit=5',
+    );
+  });
 });

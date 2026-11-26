@@ -44,6 +44,7 @@ interface WorkspaceState {
     id?: string;
     name: string;
     description?: string;
+    baseUrl?: string;
     auth?: AuthConfig;
     variables?: EnvironmentVariable[];
     sortOrder?: number;
@@ -55,6 +56,7 @@ interface WorkspaceState {
     collectionId: string;
     parentId?: string;
     name: string;
+    baseUrl?: string;
     auth?: AuthConfig;
     sortOrder?: number;
   }) => Promise<FolderRecord>;
@@ -144,20 +146,32 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     id,
     name,
     description = '',
+    baseUrl,
     auth = { type: 'none' },
     variables = [],
     sortOrder,
   }) => {
+    const existing = id ? get().collections.find((c) => c.id === id) : undefined;
+    const effectiveBaseUrl =
+      baseUrl !== undefined ? baseUrl.trim() : existing?.baseUrl ?? '';
     const saved = await tryInvoke<CollectionRecord>(
       'upsert_collection_cmd',
-      { id: id ?? null, name, description, auth, variables, sortOrder: sortOrder ?? null },
+      {
+        id: id ?? null,
+        name,
+        description,
+        baseUrl: effectiveBaseUrl,
+        auth,
+        variables,
+        sortOrder: sortOrder ?? null,
+      },
       () => {
         const ts = nowIso();
-        const existing = id ? get().collections.find((c) => c.id === id) : undefined;
         return {
           id: existing?.id ?? id ?? nanoid(),
           name: name.trim(),
           description,
+          baseUrl: effectiveBaseUrl,
           auth,
           variables,
           sortOrder: sortOrder ?? existing?.sortOrder ?? get().collections.length,
@@ -191,9 +205,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     collectionId,
     parentId,
     name,
+    baseUrl,
     auth = { type: 'inherit' },
     sortOrder,
   }) => {
+    const existing = id ? get().folders.find((f) => f.id === id) : undefined;
+    const effectiveBaseUrl =
+      baseUrl !== undefined ? baseUrl.trim() : existing?.baseUrl ?? '';
     const saved = await tryInvoke<FolderRecord>(
       'upsert_folder_cmd',
       {
@@ -201,17 +219,18 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         collectionId,
         parentId: parentId ?? null,
         name,
+        baseUrl: effectiveBaseUrl,
         auth,
         sortOrder: sortOrder ?? null,
       },
       () => {
         const ts = nowIso();
-        const existing = id ? get().folders.find((f) => f.id === id) : undefined;
         return {
           id: existing?.id ?? id ?? nanoid(),
           collectionId,
           parentId,
           name: name.trim(),
+          baseUrl: effectiveBaseUrl,
           auth,
           sortOrder: sortOrder ?? existing?.sortOrder ?? 0,
           createdAt: existing?.createdAt ?? ts,

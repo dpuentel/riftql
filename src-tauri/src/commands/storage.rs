@@ -29,11 +29,14 @@ pub fn upsert_collection_cmd(
     id: Option<String>,
     name: String,
     description: String,
+    base_url: Option<String>,
     auth: AuthConfig,
     variables: Vec<EnvironmentVariable>,
     sort_order: Option<i64>,
 ) -> AppResult<CollectionRecord> {
-    db.with_conn(|conn| upsert_collection(conn, id, name, description, auth, variables, sort_order))
+    db.with_conn(|conn| {
+        upsert_collection(conn, id, name, description, base_url, auth, variables, sort_order)
+    })
 }
 
 #[tauri::command]
@@ -48,11 +51,21 @@ pub fn upsert_folder_cmd(
     collection_id: String,
     parent_id: Option<String>,
     name: String,
+    base_url: Option<String>,
     auth: AuthConfig,
     sort_order: Option<i64>,
 ) -> AppResult<FolderRecord> {
     db.with_conn(|conn| {
-        upsert_folder(conn, id, collection_id, parent_id, name, auth, sort_order)
+        upsert_folder(
+            conn,
+            id,
+            collection_id,
+            parent_id,
+            name,
+            base_url,
+            auth,
+            sort_order,
+        )
     })
 }
 

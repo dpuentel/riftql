@@ -168,6 +168,8 @@ pub struct CollectionRecord {
     #[serde(default)]
     pub description: String,
     #[serde(default)]
+    pub base_url: String,
+    #[serde(default)]
     pub auth: AuthConfig,
     #[serde(default)]
     pub variables: Vec<EnvironmentVariable>,
@@ -185,6 +187,8 @@ pub struct FolderRecord {
     #[serde(default)]
     pub parent_id: Option<String>,
     pub name: String,
+    #[serde(default)]
+    pub base_url: String,
     #[serde(default)]
     pub auth: AuthConfig,
     #[serde(default)]

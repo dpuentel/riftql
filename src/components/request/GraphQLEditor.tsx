@@ -128,7 +128,7 @@ export function GraphQLEditor() {
   if (!tab) return null;
 
   const { draft } = tab;
-  const endpointKey = resolveEndpointKey(draft.url, tab.collectionId);
+  const endpointKey = resolveEndpointKey(draft.url, tab.collectionId, tab.folderId);
   const schemaEntry = endpointKey ? byEndpoint[endpointKey] : undefined;
   const namedOperations = operations.filter((op) => Boolean(op.name));
 

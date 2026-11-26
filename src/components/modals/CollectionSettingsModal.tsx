@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { combineBaseAndRequestUrl, resolveEffectiveBaseUrl } from '@/lib/base-url';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import type { AuthConfig } from '@/types/api';
 import type { CollectionRecord, EnvironmentVariable, FolderRecord } from '@/types/storage';
@@ -32,9 +33,12 @@ export function CollectionSettingsModal({
 }: CollectionSettingsModalProps) {
   const upsertCollection = useWorkspaceStore((s) => s.upsertCollection);
   const upsertFolder = useWorkspaceStore((s) => s.upsertFolder);
+  const collections = useWorkspaceStore((s) => s.collections);
+  const folders = useWorkspaceStore((s) => s.folders);
 
   const [name, setName] = React.useState('');
   const [description, setDescription] = React.useState('');
+  const [baseUrl, setBaseUrl] = React.useState('');
   const [auth, setAuth] = React.useState<AuthConfig>({ type: 'none' });
   const [variables, setVariables] = React.useState<EnvironmentVariable[]>([]);
 
@@ -42,16 +46,30 @@ export function CollectionSettingsModal({
     if (!open) return;
     if (folder) {
       setName(folder.name);
+      setBaseUrl(folder.baseUrl ?? '');
       setAuth(folder.auth);
       setDescription('');
       setVariables([]);
     } else if (collection) {
       setName(collection.name);
       setDescription(collection.description);
+      setBaseUrl(collection.baseUrl ?? '');
       setAuth(collection.auth);
       setVariables(collection.variables);
     }
   }, [open, collection, folder]);
+
+  const parentInheritedBase = React.useMemo(() => {
+    if (!folder) return undefined;
+    return resolveEffectiveBaseUrl(folder.parentId, folder.collectionId, folders, collections);
+  }, [folder, folders, collections]);
+
+  const effectivePreviewUrl = React.useMemo(() => {
+    if (folder) {
+      return combineBaseAndRequestUrl(parentInheritedBase?.baseUrl, baseUrl);
+    }
+    return baseUrl.trim();
+  }, [folder, parentInheritedBase?.baseUrl, baseUrl]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,6 +80,7 @@ export function CollectionSettingsModal({
         collectionId: folder.collectionId,
         parentId: folder.parentId,
         name: name.trim(),
+        baseUrl: baseUrl.trim(),
         auth,
         sortOrder: folder.sortOrder,
       });
@@ -70,6 +89,7 @@ export function CollectionSettingsModal({
         id: collection.id,
         name: name.trim(),
         description,
+        baseUrl: baseUrl.trim(),
         auth,
         variables,
         sortOrder: collection.sortOrder,
@@ -109,6 +129,37 @@ export function CollectionSettingsModal({
               />
             </div>
           )}
+
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="container-base-url-input"
+              className="text-[0.75rem] font-medium text-[var(--text-secondary)]"
+            >
+              Default / Base URL
+            </label>
+            <Input
+              id="container-base-url-input"
+              aria-label="Base URL"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder={
+                folder && parentInheritedBase?.baseUrl
+                  ? `/subpath or full URL (inherits ${parentInheritedBase.baseUrl})`
+                  : 'https://api.example.com/v1 or {{base_url}}/v1'
+              }
+              className="font-mono-code"
+            />
+            <p className="text-[0.75rem] text-[var(--text-secondary)]">
+              {effectivePreviewUrl ? (
+                <>
+                  Effective URL for requests inside:{' '}
+                  <span className="font-mono-code text-[var(--accent)]">{effectivePreviewUrl}</span>
+                </>
+              ) : (
+                'Requests inside inherit this Base URL automatically unless they specify a full http(s):// URL.'
+              )}
+            </p>
+          </div>
 
           <Tabs defaultValue="auth" className="flex flex-col">
             <TabsList>

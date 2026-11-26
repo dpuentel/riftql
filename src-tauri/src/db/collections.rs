@@ -11,34 +11,45 @@ use crate::models::{
 
 pub fn list_collections(conn: &Connection) -> AppResult<Vec<CollectionRecord>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, description, auth_json, variables_json, sort_order, created_at, updated_at
+        "SELECT id, name, description, base_url, auth_json, variables_json, sort_order, created_at, updated_at
          FROM collections ORDER BY sort_order ASC, created_at ASC",
     )?;
     let rows = stmt.query_map([], |row| {
-        let auth_json: String = row.get(3)?;
-        let vars_json: String = row.get(4)?;
+        let auth_json: String = row.get(4)?;
+        let vars_json: String = row.get(5)?;
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
             row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
             auth_json,
             vars_json,
-            row.get::<_, i64>(5)?,
-            row.get::<_, String>(6)?,
+            row.get::<_, i64>(6)?,
             row.get::<_, String>(7)?,
+            row.get::<_, String>(8)?,
         ))
     })?;
 
     let mut out = Vec::new();
     for item in rows {
-        let (id, name, description, auth_json, vars_json, sort_order, created_at, updated_at) =
-            item?;
+        let (
+            id,
+            name,
+            description,
+            base_url,
+            auth_json,
+            vars_json,
+            sort_order,
+            created_at,
+            updated_at,
+        ) = item?;
         let auth: AuthConfig = serde_json::from_str(&auth_json)?;
         let variables: Vec<EnvironmentVariable> = serde_json::from_str(&vars_json)?;
         out.push(CollectionRecord {
             id,
             name,
             description,
+            base_url,
             auth,
             variables,
             sort_order,
@@ -54,6 +65,7 @@ pub fn upsert_collection(
     id: Option<String>,
     name: String,
     description: String,
+    base_url: Option<String>,
     auth: AuthConfig,
     variables: Vec<EnvironmentVariable>,
     sort_order: Option<i64>,
@@ -64,6 +76,7 @@ pub fn upsert_collection(
         ));
     }
     let now = Utc::now().to_rfc3339();
+    let base_url_trimmed = base_url.unwrap_or_default().trim().to_string();
     let auth_json = serde_json::to_string(&auth)?;
     let vars_json = serde_json::to_string(&variables)?;
 
@@ -80,12 +93,13 @@ pub fn upsert_collection(
             let order = sort_order.unwrap_or(0);
             conn.execute(
                 "UPDATE collections
-                 SET name = ?2, description = ?3, auth_json = ?4, variables_json = ?5, sort_order = ?6, updated_at = ?7
+                 SET name = ?2, description = ?3, base_url = ?4, auth_json = ?5, variables_json = ?6, sort_order = ?7, updated_at = ?8
                  WHERE id = ?1",
                 params![
                     existing_id,
                     name.trim(),
                     description,
+                    base_url_trimmed,
                     auth_json,
                     vars_json,
                     order,
@@ -96,6 +110,7 @@ pub fn upsert_collection(
                 id: existing_id,
                 name: name.trim().to_string(),
                 description,
+                base_url: base_url_trimmed,
                 auth,
                 variables,
                 sort_order: order,
@@ -105,12 +120,13 @@ pub fn upsert_collection(
         }
         let order = sort_order.unwrap_or_else(|| next_collection_sort(conn));
         conn.execute(
-            "INSERT INTO collections (id, name, description, auth_json, variables_json, sort_order, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+            "INSERT INTO collections (id, name, description, base_url, auth_json, variables_json, sort_order, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
             params![
                 existing_id,
                 name.trim(),
                 description,
+                base_url_trimmed,
                 auth_json,
                 vars_json,
                 order,
@@ -121,6 +137,7 @@ pub fn upsert_collection(
             id: existing_id,
             name: name.trim().to_string(),
             description,
+            base_url: base_url_trimmed,
             auth,
             variables,
             sort_order: order,
@@ -132,12 +149,13 @@ pub fn upsert_collection(
     let new_id = Uuid::new_v4().to_string();
     let order = sort_order.unwrap_or_else(|| next_collection_sort(conn));
     conn.execute(
-        "INSERT INTO collections (id, name, description, auth_json, variables_json, sort_order, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+        "INSERT INTO collections (id, name, description, base_url, auth_json, variables_json, sort_order, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
         params![
             new_id,
             name.trim(),
             description,
+            base_url_trimmed,
             auth_json,
             vars_json,
             order,
@@ -148,6 +166,7 @@ pub fn upsert_collection(
         id: new_id,
         name: name.trim().to_string(),
         description,
+        base_url: base_url_trimmed,
         auth,
         variables,
         sort_order: order,
@@ -172,7 +191,7 @@ fn next_collection_sort(conn: &Connection) -> i64 {
 
 pub fn list_folders(conn: &Connection) -> AppResult<Vec<FolderRecord>> {
     let mut stmt = conn.prepare(
-        "SELECT id, collection_id, parent_id, name, auth_json, sort_order, created_at, updated_at
+        "SELECT id, collection_id, parent_id, name, base_url, auth_json, sort_order, created_at, updated_at
          FROM folders ORDER BY sort_order ASC, created_at ASC",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -182,22 +201,33 @@ pub fn list_folders(conn: &Connection) -> AppResult<Vec<FolderRecord>> {
             row.get::<_, Option<String>>(2)?,
             row.get::<_, String>(3)?,
             row.get::<_, String>(4)?,
-            row.get::<_, i64>(5)?,
-            row.get::<_, String>(6)?,
+            row.get::<_, String>(5)?,
+            row.get::<_, i64>(6)?,
             row.get::<_, String>(7)?,
+            row.get::<_, String>(8)?,
         ))
     })?;
 
     let mut out = Vec::new();
     for item in rows {
-        let (id, collection_id, parent_id, name, auth_json, sort_order, created_at, updated_at) =
-            item?;
+        let (
+            id,
+            collection_id,
+            parent_id,
+            name,
+            base_url,
+            auth_json,
+            sort_order,
+            created_at,
+            updated_at,
+        ) = item?;
         let auth: AuthConfig = serde_json::from_str(&auth_json)?;
         out.push(FolderRecord {
             id,
             collection_id,
             parent_id,
             name,
+            base_url,
             auth,
             sort_order,
             created_at,
@@ -237,6 +267,7 @@ pub fn upsert_folder(
     collection_id: String,
     parent_id: Option<String>,
     name: String,
+    base_url: Option<String>,
     auth: AuthConfig,
     sort_order: Option<i64>,
 ) -> AppResult<FolderRecord> {
@@ -247,6 +278,7 @@ pub fn upsert_folder(
     }
 
     let now = Utc::now().to_rfc3339();
+    let base_url_trimmed = base_url.unwrap_or_default().trim().to_string();
     let auth_json = serde_json::to_string(&auth)?;
 
     if let Some(existing_id) = id {
@@ -263,13 +295,14 @@ pub fn upsert_folder(
             let order = sort_order.unwrap_or(0);
             conn.execute(
                 "UPDATE folders
-                 SET collection_id = ?2, parent_id = ?3, name = ?4, auth_json = ?5, sort_order = ?6, updated_at = ?7
+                 SET collection_id = ?2, parent_id = ?3, name = ?4, base_url = ?5, auth_json = ?6, sort_order = ?7, updated_at = ?8
                  WHERE id = ?1",
                 params![
                     existing_id,
                     collection_id,
                     parent_id,
                     name.trim(),
+                    base_url_trimmed,
                     auth_json,
                     order,
                     now
@@ -280,6 +313,7 @@ pub fn upsert_folder(
                 collection_id,
                 parent_id,
                 name: name.trim().to_string(),
+                base_url: base_url_trimmed,
                 auth,
                 sort_order: order,
                 created_at,
@@ -289,13 +323,14 @@ pub fn upsert_folder(
 
         let order = sort_order.unwrap_or(0);
         conn.execute(
-            "INSERT INTO folders (id, collection_id, parent_id, name, auth_json, sort_order, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+            "INSERT INTO folders (id, collection_id, parent_id, name, base_url, auth_json, sort_order, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
             params![
                 existing_id,
                 collection_id,
                 parent_id,
                 name.trim(),
+                base_url_trimmed,
                 auth_json,
                 order,
                 now
@@ -306,6 +341,7 @@ pub fn upsert_folder(
             collection_id,
             parent_id,
             name: name.trim().to_string(),
+            base_url: base_url_trimmed,
             auth,
             sort_order: order,
             created_at: now.clone(),
@@ -316,13 +352,14 @@ pub fn upsert_folder(
     let new_id = Uuid::new_v4().to_string();
     let order = sort_order.unwrap_or(0);
     conn.execute(
-        "INSERT INTO folders (id, collection_id, parent_id, name, auth_json, sort_order, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+        "INSERT INTO folders (id, collection_id, parent_id, name, base_url, auth_json, sort_order, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
         params![
             new_id,
             collection_id,
             parent_id,
             name.trim(),
+            base_url_trimmed,
             auth_json,
             order,
             now
@@ -333,6 +370,7 @@ pub fn upsert_folder(
         collection_id,
         parent_id,
         name: name.trim().to_string(),
+        base_url: base_url_trimmed,
         auth,
         sort_order: order,
         created_at: now.clone(),

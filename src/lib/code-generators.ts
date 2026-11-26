@@ -1,4 +1,5 @@
 import { applyAuthToRequest } from '@/lib/auth';
+import { resolveRequestUrl } from '@/lib/base-url';
 import { resolveVariables, type VariableResolutionContext } from '@/lib/variables';
 import { appendQueryParamsToUrl } from '@/store/useTabsStore';
 import type { AuthConfig, HeaderPair, RequestBody, RequestDraft } from '@/types/api';
@@ -13,6 +14,7 @@ export type CodeSnippetTarget =
 export interface SnippetOptions {
   resolveVariables: boolean;
   effectiveAuth?: AuthConfig;
+  effectiveBaseUrl?: string;
 }
 
 function escapeSingleQuotedBash(val: string): string {
@@ -100,7 +102,9 @@ export function generateCodeSnippet(
     ? (s: string) => resolveVariables(s, varContext)
     : (s: string) => s;
 
-  const baseUrl = resolve(draft.url.trim()) || 'https://api.example.com';
+  const baseUrl =
+    resolveRequestUrl(draft.url, options.effectiveBaseUrl, resolve) ||
+    'https://api.example.com';
   const resolvedParams = draft.params.map((p) => ({
     ...p,
     key: resolve(p.key),

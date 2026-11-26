@@ -217,4 +217,65 @@ describe('RequestPane and TabBar', () => {
     expect(gql?.operationName).toBe('DeleteUser');
     expect(gql?.query).toContain('mutation DeleteUser($id: ID!)');
   });
+
+  it('displays inherited folder Base URL banner and combined URL preview in RequestPane', async () => {
+    useWorkspaceStore.setState({
+      collections: [
+        {
+          id: 'col-1',
+          name: 'Platform',
+          description: '',
+          baseUrl: 'https://api.platform.test',
+          auth: { type: 'none' },
+          variables: [],
+          sortOrder: 0,
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
+      folders: [
+        {
+          id: 'fld-1',
+          collectionId: 'col-1',
+          name: 'V1 Users',
+          baseUrl: '/v1/users',
+          auth: { type: 'inherit' },
+          sortOrder: 0,
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
+      savedRequests: [],
+    });
+
+    useTabsStore.setState({
+      tabs: [
+        {
+          id: 'tab-inherited',
+          savedRequestId: 'req-1',
+          collectionId: 'col-1',
+          folderId: 'fld-1',
+          title: 'Get Profile',
+          isDirty: false,
+          draft: {
+            ...createEmptyDraft('rest'),
+            id: 'req-1',
+            name: 'Get Profile',
+            url: '/profile',
+          },
+          isLoading: false,
+        },
+      ],
+      activeTabId: 'tab-inherited',
+    });
+
+    render(
+      <TooltipProvider>
+        <RequestPane />
+      </TooltipProvider>,
+    );
+
+    expect(screen.getByText(/inherits from Folder "V1 Users":/i)).toBeInTheDocument();
+    expect(screen.getByText('https://api.platform.test/v1/users/profile')).toBeInTheDocument();
+  });
 });

@@ -3,6 +3,7 @@ import {
   Braces,
   Code2,
   Import,
+  Link2,
   Pencil,
   Save,
   Send,
@@ -25,6 +26,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  combineBaseAndRequestUrl,
+  isAbsoluteHttpUrl,
+  resolveEffectiveBaseUrl,
+} from '@/lib/base-url';
 import { getMethodColorClass } from '@/lib/format';
 import { syncParamsFromUrl, syncUrlFromParams } from '@/lib/url-params';
 import { cn } from '@/lib/utils';
@@ -153,7 +159,14 @@ export function RequestPane({
     }
   };
 
-  const urlVars = findVariableMatches(draft.url, {
+  const inheritedBase = resolveEffectiveBaseUrl(
+    tab.folderId,
+    tab.collectionId,
+    folders,
+    collections,
+  );
+  const combinedRawUrl = combineBaseAndRequestUrl(inheritedBase.baseUrl, draft.url);
+  const urlVars = findVariableMatches(combinedRawUrl, {
     globalEnvironment: globalEnv,
     activeEnvironment: activeEnv,
     collectionVariables: collection?.variables,
@@ -311,7 +324,11 @@ export function RequestPane({
             <Input
               ref={urlInputRef}
               value={draft.url}
-              placeholder="https://api.example.com/v1/resource or paste cURL..."
+              placeholder={
+                inheritedBase.baseUrl
+                  ? `Inherits ${inheritedBase.baseUrl} (enter /path or full URL to override)`
+                  : 'https://api.example.com/v1/resource or paste cURL...'
+              }
               aria-label="Request URL"
               onChange={(e) => handleUrlChange(e.target.value)}
               onPaste={(e) => {
@@ -401,6 +418,22 @@ export function RequestPane({
             </ActionTooltip>
           )}
         </div>
+
+        {inheritedBase.baseUrl && (
+          <div className="flex min-w-0 items-center gap-1.5 text-[0.75rem] text-[var(--text-secondary)]">
+            <Link2 className="h-3 w-3 shrink-0 text-[var(--accent)]" />
+            {isAbsoluteHttpUrl(draft.url) ? (
+              <span className="truncate">
+                Overriding base URL from {inheritedBase.sourceLabel}
+              </span>
+            ) : (
+              <span className="truncate">
+                Inherits from {inheritedBase.sourceLabel}:{' '}
+                <span className="font-mono-code text-[var(--accent)]">{combinedRawUrl}</span>
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Secondary Micro-Toolbar */}
         <div className="flex flex-wrap items-center justify-between gap-2">
