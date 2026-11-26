@@ -23,6 +23,7 @@ Track MVP execution and post-MVP backlog items. Every ticket maps to atomic Git 
 | [T-015](./T-015-folder-management-and-request-rename.md) | Collection folder actions, nested subfolders & inline request renaming | UI / Collections | `DONE` |
 | [T-016](./T-016-configurable-font-size.md) | Configurable UI & code editor font sizes | UI / Settings | `DONE` |
 | [T-017](./T-017-graphql-resizable-panels-and-insert.md) | Resizable GraphQL panels & insert operations from Schema Docs | UI / GraphQL | `DONE` |
+| [T-018](./T-018-linux-icon-and-data-directory.md) | Ubuntu AppImage dock icon & configurable data storage directory | Desktop / Storage | `DONE` |
 
 ---
 

@@ -1,7 +1,11 @@
 import * as React from 'react';
 import {
   AlertTriangle,
+  Check,
+  Copy,
+  Database as DatabaseIcon,
   Download,
+  FolderOpen,
   Keyboard,
   Minus,
   Plus,
@@ -33,7 +37,11 @@ import {
   keyboardEventToCombo,
 } from '@/lib/shortcuts';
 import { exportJsonFile, importJsonFileViaDialog } from '@/lib/file-io';
-import { hasNativeFileBridge } from '@/lib/tauri';
+import {
+  hasNativeFileBridge,
+  invokeCommand,
+  pickOpenDirectory,
+} from '@/lib/tauri';
 import { cn } from '@/lib/utils';
 import {
   MAX_CODE_FONT_SIZE,
@@ -42,9 +50,15 @@ import {
   MIN_UI_FONT_SIZE,
   useSettingsStore,
 } from '@/store/useSettingsStore';
+import { useTabsStore } from '@/store/useTabsStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import type { ShortcutActionId, ShortcutDefinition } from '@/types/shortcuts';
-import type { SplitLayout, ThemePreference, WorkspaceExport } from '@/types/storage';
+import type {
+  SplitLayout,
+  StorageInfo,
+  ThemePreference,
+  WorkspaceExport,
+} from '@/types/storage';
 
 interface SettingsModalProps {
   open: boolean;
@@ -66,6 +80,8 @@ export function SettingsModal({
 
   const exportWorkspace = useWorkspaceStore((s) => s.exportWorkspace);
   const importWorkspace = useWorkspaceStore((s) => s.importWorkspace);
+  const loadWorkspace = useWorkspaceStore((s) => s.loadWorkspace);
+  const loadSessionTabs = useTabsStore((s) => s.loadSessionTabs);
 
   const [shortcutFilter, setShortcutFilter] = React.useState('');
   const [recordingId, setRecordingId] = React.useState<ShortcutActionId | null>(null);
@@ -75,6 +91,10 @@ export function SettingsModal({
     conflictsWith: ShortcutDefinition;
   } | null>(null);
   const [dataMessage, setDataMessage] = React.useState<string | null>(null);
+  const [storageInfo, setStorageInfo] = React.useState<StorageInfo | null>(null);
+  const [migrateOnMove, setMigrateOnMove] = React.useState(true);
+  const [changingDir, setChangingDir] = React.useState(false);
+  const [copiedPath, setCopiedPath] = React.useState(false);
   const importInputRef = React.useRef<HTMLInputElement | null>(null);
 
   React.useEffect(() => {
@@ -86,6 +106,18 @@ export function SettingsModal({
       setRecordingId(null);
       setConflictInfo(null);
       setDataMessage(null);
+      setCopiedPath(false);
+      return;
+    }
+
+    if (hasNativeFileBridge()) {
+      void invokeCommand<StorageInfo>('get_storage_info_cmd')
+        .then((info) => {
+          if (info) setStorageInfo(info);
+        })
+        .catch(() => {
+          // Ignore when command mock doesn't return StorageInfo
+        });
     }
   }, [open]);
 
@@ -187,6 +219,50 @@ export function SettingsModal({
       await importWorkspaceFromText(await file.text());
     } finally {
       e.target.value = '';
+    }
+  };
+
+  const applyDataDirectoryChange = async (newDir: string | null) => {
+    setChangingDir(true);
+    try {
+      const updated = await invokeCommand<StorageInfo>('set_data_directory_cmd', {
+        newDir,
+        migrateExisting: migrateOnMove,
+      });
+      setStorageInfo(updated);
+      await loadWorkspace();
+      await loadSessionTabs();
+      setDataMessage(
+        updated.isCustom
+          ? `Data storage moved to ${updated.currentDataDir}.`
+          : `Data storage reset to default (${updated.currentDataDir}).`,
+      );
+    } catch (err) {
+      setDataMessage(
+        err instanceof Error ? err.message : 'Failed to change data storage folder.',
+      );
+    } finally {
+      setChangingDir(false);
+    }
+  };
+
+  const handleChangeDataDir = async () => {
+    const picked = await pickOpenDirectory({
+      title: 'Select RiftQL Data Storage Folder',
+      defaultPath: storageInfo?.currentDataDir,
+    });
+    if (!picked) return;
+    await applyDataDirectoryChange(picked);
+  };
+
+  const handleCopyDataPath = async () => {
+    if (!storageInfo) return;
+    try {
+      await navigator.clipboard.writeText(storageInfo.currentDataDir);
+      setCopiedPath(true);
+      setTimeout(() => setCopiedPath(false), 1500);
+    } catch {
+      // Clipboard unavailable
     }
   };
 
@@ -649,6 +725,94 @@ export function SettingsModal({
 
           {/* Data Tab */}
           <TabsContent value="data" className="flex flex-col gap-3 pt-3">
+            {/* Local Data Storage Location */}
+            <div className="flex flex-col gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--text-primary)]">
+                  <DatabaseIcon className="h-3.5 w-3.5 text-[var(--accent)]" />
+                  <span>Local Data Directory</span>
+                </div>
+                {storageInfo && (
+                  <Badge variant={storageInfo.isCustom ? 'accent' : 'default'}>
+                    {storageInfo.isCustom ? 'Custom Folder' : 'System Default'}
+                  </Badge>
+                )}
+              </div>
+
+              {storageInfo ? (
+                <>
+                  <div className="flex items-center justify-between gap-2 rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5">
+                    <div className="min-w-0 flex-1">
+                      <div
+                        title={storageInfo.currentDataDir}
+                        className="truncate font-mono-code text-[0.75rem] text-[var(--text-primary)] select-all"
+                      >
+                        {storageInfo.currentDataDir}
+                      </div>
+                      <div
+                        title={storageInfo.dbPath}
+                        className="truncate font-mono-code text-[0.6875rem] text-[var(--text-secondary)]"
+                      >
+                        Database: {storageInfo.dbPath}
+                      </div>
+                    </div>
+                    <ActionTooltip label="Copy Directory Path">
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label="Copy data directory path"
+                        onClick={() => void handleCopyDataPath()}
+                      >
+                        {copiedPath ? (
+                          <Check className="h-3.5 w-3.5 text-[#34D399]" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </ActionTooltip>
+                  </div>
+
+                  <label className="flex cursor-pointer items-center gap-2 text-[0.75rem] text-[var(--text-secondary)]">
+                    <input
+                      type="checkbox"
+                      checked={migrateOnMove}
+                      onChange={(e) => setMigrateOnMove(e.target.checked)}
+                      className="h-3.5 w-3.5 accent-[var(--accent)]"
+                    />
+                    <span>Copy current database if destination folder has no riftql.db yet</span>
+                  </label>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      size="xs"
+                      disabled={changingDir}
+                      onClick={() => void handleChangeDataDir()}
+                    >
+                      <FolderOpen className="h-3.5 w-3.5" />
+                      <span>Change Folder…</span>
+                    </Button>
+                    {storageInfo.isCustom && (
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        disabled={changingDir}
+                        onClick={() => void applyDataDirectoryChange(null)}
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        <span>Reset to Default</span>
+                      </Button>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="text-[0.75rem] text-[var(--text-secondary)]">
+                  Default app data location: <code className="font-mono-code">~/.local/share/com.riftql.app</code>{' '}
+                  (Linux) · <code className="font-mono-code">%APPDATA%\com.riftql.app</code> (Windows).
+                </div>
+              )}
+            </div>
+
             <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3 text-xs text-[var(--text-secondary)]">
               Export your collections, nested folders, saved requests, and environments as JSON.
               Variables flagged as secret are automatically stripped before export.

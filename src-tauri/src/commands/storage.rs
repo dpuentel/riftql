@@ -15,7 +15,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::{
     AppSettings, AuthConfig, CollectionRecord, EnvironmentRecord, EnvironmentVariable,
     FolderRecord, HistoryEntry, NewHistoryEntryInput, RequestDraft, SavedRequestRecord,
-    SessionTabRecord, WorkspaceExport, WorkspaceSnapshot,
+    SessionTabRecord, StorageInfo, WorkspaceExport, WorkspaceSnapshot,
 };
 
 #[tauri::command]
@@ -173,4 +173,30 @@ pub fn read_text_file_cmd(path: String) -> AppResult<String> {
         return Err(AppError::Validation("Source file path cannot be empty".to_string()));
     }
     Ok(std::fs::read_to_string(trimmed)?)
+}
+
+#[tauri::command]
+pub fn get_storage_info_cmd(db: State<Database>) -> AppResult<StorageInfo> {
+    Ok(db.storage_info())
+}
+
+#[tauri::command]
+pub fn set_data_directory_cmd(
+    db: State<Database>,
+    new_dir: Option<String>,
+    migrate_existing: bool,
+) -> AppResult<StorageInfo> {
+    let parsed = match new_dir {
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return Err(AppError::Validation(
+                    "Data directory path cannot be empty".to_string(),
+                ));
+            }
+            Some(std::path::PathBuf::from(trimmed))
+        }
+        None => None,
+    };
+    db.set_data_directory(parsed, migrate_existing)
 }

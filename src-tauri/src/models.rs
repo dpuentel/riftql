@@ -391,6 +391,15 @@ impl Default for AppSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct StorageInfo {
+    pub current_data_dir: String,
+    pub db_path: String,
+    pub default_data_dir: String,
+    pub is_custom: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceSnapshot {
     pub collections: Vec<CollectionRecord>,
     pub folders: Vec<FolderRecord>,

@@ -127,4 +127,72 @@ describe('SettingsModal', () => {
     expect(useSettingsStore.getState().settings.codeFontSize).toBe(15);
     expect(document.documentElement.style.getPropertyValue('--rift-code-font-size')).toBe('15px');
   });
+
+  it('displays local data directory in Data tab and switches folder cleanly', async () => {
+    const user = userEvent.setup();
+    const calls: Array<{ cmd: string; args?: Record<string, unknown> }> = [];
+    const openDirectory = vi.fn(async () => '/home/user/riftql-sync');
+
+    setTauriBridgeAdapter({
+      invoke: async <T,>(cmd: string, args?: Record<string, unknown>) => {
+        calls.push({ cmd, args });
+        if (cmd === 'get_storage_info_cmd') {
+          return {
+            currentDataDir: '/home/user/.local/share/com.riftql.app',
+            dbPath: '/home/user/.local/share/com.riftql.app/riftql.db',
+            defaultDataDir: '/home/user/.local/share/com.riftql.app',
+            isCustom: false,
+          } as T;
+        }
+        if (cmd === 'set_data_directory_cmd') {
+          return {
+            currentDataDir: '/home/user/riftql-sync',
+            dbPath: '/home/user/riftql-sync/riftql.db',
+            defaultDataDir: '/home/user/.local/share/com.riftql.app',
+            isCustom: true,
+          } as T;
+        }
+        if (cmd === 'load_workspace') {
+          return {
+            collections: [],
+            folders: [],
+            savedRequests: [],
+            environments: [
+              { id: 'g1', name: 'Global', isGlobal: true, variables: [], createdAt: '', updatedAt: '' },
+            ],
+            settings: { ...DEFAULT_SETTINGS },
+          } as T;
+        }
+        if (cmd === 'list_history_cmd' || cmd === 'list_cookies_cmd' || cmd === 'list_session_tabs_cmd') {
+          return [] as T;
+        }
+        return undefined as T;
+      },
+      openFile: vi.fn(async () => null),
+      saveFile: vi.fn(async () => null),
+      openDirectory,
+    });
+
+    render(
+      <TooltipProvider>
+        <SettingsModal open onOpenChange={() => {}} />
+      </TooltipProvider>,
+    );
+
+    await user.click(screen.getByRole('tab', { name: /^data$/i }));
+    expect(
+      await screen.findByText('/home/user/.local/share/com.riftql.app'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('System Default')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /change folder/i }));
+    expect(openDirectory).toHaveBeenCalledTimes(1);
+    const moveCall = calls.find((c) => c.cmd === 'set_data_directory_cmd');
+    expect(moveCall?.args).toEqual({
+      newDir: '/home/user/riftql-sync',
+      migrateExisting: true,
+    });
+    expect(await screen.findByText('Custom Folder')).toBeInTheDocument();
+    expect(screen.getByText(/data storage moved to \/home\/user\/riftql-sync/i)).toBeInTheDocument();
+  });
 });

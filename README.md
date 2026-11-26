@@ -27,7 +27,21 @@
   - Variable precedence: `Active Environment > Collection > Global` plus built-in dynamic variables (`{{$uuid}}`, `{{$timestamp}}`, `{{$isoTimestamp}}`, `{{$randomInt}}`), secret masking (`••••`), and secret-stripped JSON export.
   - **cURL Importer** (modal + auto-detect paste in the URL bar) and **Code Snippet Generator** (`cURL`, `fetch`, `axios`, `Python requests`, `HTTPie`).
 - **Keyboard-First UX**:
-  - Command Palette (`Ctrl/Cmd+K`), customizable keyboard shortcuts with conflict detection, universal shortcut-aware hover tooltips (`title` + styled `<kbd>`), Horizontal/Vertical split toggle, and Dark/Light/System themes (see [BRANDING.md](./BRANDING.md)).
+  - Command Palette (`Ctrl/Cmd+K`), customizable keyboard shortcuts with conflict detection, configurable UI & code editor font sizes, universal shortcut-aware hover tooltips (`title` + styled `<kbd>`), resizable panels, Horizontal/Vertical split toggle, and Dark/Light/System themes (see [BRANDING.md](./BRANDING.md)).
+
+---
+
+## Local Data Storage & Configuration
+
+RiftQL stores collections, folders, requests, environments, cookies, history, and settings locally in a single SQLite database (`riftql.db`). Default data directories by OS:
+
+- **Linux (`.AppImage` / `.deb` / `.rpm`):** `~/.local/share/com.riftql.app/` (or `$XDG_DATA_HOME/com.riftql.app/`)
+- **Windows:** `%APPDATA%\com.riftql.app\`
+- **macOS:** `~/Library/Application Support/com.riftql.app/`
+
+You can view, copy, or change this folder anytime in **Settings → Data → Local Data Directory** (with optional automatic migration of your existing `riftql.db`). Custom paths are stored in `storage-config.json` inside the default app data directory, and **Reset to Default** restores the OS default location cleanly.
+
+On **Linux AppImage** builds, RiftQL enables `enableGTKAppId` (`com.riftql.app`) and registers `~/.local/share/applications/com.riftql.app.desktop` + hicolor PNG icon at startup when `APPIMAGE` is present so GNOME/Ubuntu docks display the RiftQL icon reliably.
 
 ---
 

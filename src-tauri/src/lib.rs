@@ -2,6 +2,7 @@ pub mod commands;
 pub mod db;
 pub mod error;
 pub mod http;
+pub mod linux_desktop;
 pub mod models;
 
 use tauri::Manager;
@@ -14,12 +15,22 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            if let (Some(window), Some(icon)) = (
+                app.get_webview_window("main"),
+                app.default_window_icon(),
+            ) {
+                let _ = window.set_icon(icon.clone());
+            }
+
+            #[cfg(target_os = "linux")]
+            linux_desktop::ensure_appimage_desktop_integration();
+
             let app_data_dir = app
                 .path()
                 .app_data_dir()
                 .expect("failed to resolve app data directory");
-            let db_path = app_data_dir.join("riftql.db");
-            let database = Database::open(&db_path).expect("failed to open RiftQL SQLite database");
+            let database = Database::open_with_default_dir(app_data_dir)
+                .expect("failed to open RiftQL SQLite database");
             app.manage(database);
             app.manage(InFlightRegistry::default());
             app.manage(ResponseBodyCache::default());
@@ -47,6 +58,8 @@ pub fn run() {
             commands::storage::import_workspace_cmd,
             commands::storage::write_text_file_cmd,
             commands::storage::read_text_file_cmd,
+            commands::storage::get_storage_info_cmd,
+            commands::storage::set_data_directory_cmd,
             commands::cookies::list_cookies_cmd,
             commands::cookies::upsert_cookie_cmd,
             commands::cookies::delete_cookie_cmd,

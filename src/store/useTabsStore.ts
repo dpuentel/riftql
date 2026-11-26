@@ -194,7 +194,22 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   loadSessionTabs: async () => {
     try {
       const restored = await invokeCommand<SessionTabRecord[]>('list_session_tabs_cmd');
-      if (!restored || restored.length === 0) return;
+      if (!restored || restored.length === 0) {
+        const freshId = nanoid();
+        set({
+          tabs: [
+            {
+              id: freshId,
+              title: 'Untitled Request',
+              isDirty: false,
+              draft: createEmptyDraft('rest'),
+              isLoading: false,
+            },
+          ],
+          activeTabId: freshId,
+        });
+        return;
+      }
 
       const workspace = useWorkspaceStore.getState();
       const requestMap = new Map(workspace.savedRequests.map((r) => [r.id, r]));

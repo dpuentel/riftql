@@ -1,4 +1,5 @@
 use chrono::Utc;
+use tempfile::TempDir;
 
 use crate::db::collections::{
     delete_collection, list_collections, list_folders, list_saved_requests, upsert_collection,
@@ -427,4 +428,129 @@ fn app_settings_deserializes_legacy_json_with_default_font_sizes() {
     let parsed: AppSettings = serde_json::from_str(legacy_json).expect("legacy settings json");
     assert_eq!(parsed.ui_font_size, 16);
     assert_eq!(parsed.code_font_size, 13);
+}
+
+#[test]
+fn configurable_data_directory_migrates_persists_and_resets_safely() {
+    let root = TempDir::new().unwrap();
+    let default_dir = root.path().join("default-data");
+    let custom_dir = root.path().join("custom-data");
+    let existing_target_dir = root.path().join("existing-target");
+
+    // Seed existing target DB separately so we verify non-destructive switch
+    {
+        let seed_db = Database::open(&existing_target_dir.join("riftql.db")).unwrap();
+        seed_db
+            .with_conn(|conn| {
+                upsert_collection(
+                    conn,
+                    None,
+                    "Existing Target".into(),
+                    "".into(),
+                    AuthConfig::None,
+                    vec![],
+                    None,
+                )?;
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    // Open with default dir and create a collection
+    let db = Database::open_with_default_dir(default_dir.clone()).unwrap();
+    assert!(!db.storage_info().is_custom);
+    db.with_conn(|conn| {
+        upsert_collection(
+            conn,
+            None,
+            "Migrated API".into(),
+            "".into(),
+            AuthConfig::None,
+            vec![],
+            None,
+        )?;
+        Ok(())
+    })
+    .unwrap();
+
+    // Migrate to empty custom directory
+    let info_custom = db
+        .set_data_directory(Some(custom_dir.clone()), true)
+        .expect("switch to custom dir");
+    assert!(info_custom.is_custom);
+    assert!(custom_dir.join("riftql.db").exists());
+    assert!(default_dir.join("storage-config.json").exists());
+    db.with_conn(|conn| {
+        let cols = list_collections(conn)?;
+        assert_eq!(cols.len(), 1);
+        assert_eq!(cols[0].name, "Migrated API");
+        Ok(())
+    })
+    .unwrap();
+    drop(db);
+
+    // Reopening with default_dir resumes custom_dir automatically
+    let reopened = Database::open_with_default_dir(default_dir.clone()).unwrap();
+    assert!(reopened.storage_info().is_custom);
+    assert_eq!(
+        reopened.storage_info().current_data_dir,
+        custom_dir.to_string_lossy()
+    );
+    reopened
+        .with_conn(|conn| {
+            let cols = list_collections(conn)?;
+            assert_eq!(cols[0].name, "Migrated API");
+            Ok(())
+        })
+        .unwrap();
+
+    // Switching to a folder that already contains riftql.db preserves destination data
+    reopened
+        .set_data_directory(Some(existing_target_dir.clone()), true)
+        .expect("switch to existing db dir");
+    reopened
+        .with_conn(|conn| {
+            let cols = list_collections(conn)?;
+            assert_eq!(cols.len(), 1);
+            assert_eq!(cols[0].name, "Existing Target");
+            Ok(())
+        })
+        .unwrap();
+
+    // Reset back to system default
+    let reset_info = reopened
+        .set_data_directory(None, false)
+        .expect("reset to default");
+    assert!(!reset_info.is_custom);
+    assert!(!default_dir.join("storage-config.json").exists());
+}
+
+#[test]
+fn linux_appimage_desktop_entry_includes_startup_wm_class_and_icon() {
+    let temp = TempDir::new().unwrap();
+    let sample_png = b"fake-png-bytes";
+    crate::linux_desktop::write_appimage_desktop_entry(
+        temp.path(),
+        "/home/user/Apps/RiftQL_0.1.0_amd64.AppImage",
+        sample_png,
+    )
+    .unwrap();
+
+    let icon_path = temp
+        .path()
+        .join("icons")
+        .join("hicolor")
+        .join("256x256")
+        .join("apps")
+        .join("com.riftql.app.png");
+    let desktop_path = temp
+        .path()
+        .join("applications")
+        .join("com.riftql.app.desktop");
+    assert_eq!(std::fs::read(&icon_path).unwrap(), sample_png);
+
+    let desktop_text = std::fs::read_to_string(&desktop_path).unwrap();
+    assert!(desktop_text.contains("StartupWMClass=com.riftql.app"));
+    assert!(desktop_text.contains("TryExec=/home/user/Apps/RiftQL_0.1.0_amd64.AppImage"));
+    assert!(desktop_text.contains(&format!("Icon={}", icon_path.to_string_lossy())));
 }

@@ -144,6 +144,13 @@ export interface AppSettings {
   codeFontSize: number;
 }
 
+export interface StorageInfo {
+  currentDataDir: string;
+  dbPath: string;
+  defaultDataDir: string;
+  isCustom: boolean;
+}
+
 export interface WorkspaceSnapshot {
   collections: CollectionRecord[];
   folders: FolderRecord[];
