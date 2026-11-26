@@ -120,10 +120,11 @@ All shortcuts can be customized in **Settings → Shortcuts** (`Ctrl+,` / `⌘,`
 
 - **CI ([.github/workflows/ci.yml](./.github/workflows/ci.yml)):** Runs on every push/PR to `main` (`pnpm typecheck`, `pnpm test`, `pnpm build`, and `cargo test` on `ubuntu-22.04` and `windows-latest`).
 - **Release Binaries ([.github/workflows/release.yml](./.github/workflows/release.yml)):** Compiles native installers for **Windows (`x64`: `.msi` / `.exe`)**, **Linux (`x64`: `.deb` / `.rpm` / `.AppImage`)**, and **macOS (`arm64` & `x64`: `.dmg`)**:
-  - **Tag Release (Draft GitHub Release):**
+  - **Automated Release CLI (`pnpm release`):** Runs `pnpm typecheck` + `pnpm test`, updates `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `src-tauri/Cargo.lock`, creates commit + annotated tag `v<version>`, and pushes to `origin` to trigger the Draft Release build:
     ```bash
-    git tag v0.1.0
-    git push origin v0.1.0
+    pnpm release patch        # 0.2.0 -> 0.2.1 (or minor / major / 0.3.0)
+    pnpm release minor --dry-run
+    pnpm release 0.3.0 --no-push
     ```
   - **Manual Build (Workflow Artifacts):** Trigger **Actions → Release Binaries → Run workflow** (`workflow_dispatch`) to compile and download binaries directly from the run artifacts without creating a release tag.
 
