@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   customShortcuts: {},
   uiFontSize: 16,
   codeFontSize: 13,
+  autoCheckUpdates: true,
 };
 
 export function clampUiFontSize(value: number): number {

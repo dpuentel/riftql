@@ -161,3 +161,59 @@ dialog:modal {
   outline: 1.5px solid var(--accent);
   outline-offset: 1px;
 }
+
+/* Native <progress> styling following modern-web-guidance (progress) */
+progress.rift-progress {
+  appearance: none;
+  border: 0 solid;
+  overflow: clip;
+  container-type: inline-size;
+  --progress-bar-radius: 9999px;
+  --progress-bar-indeterminate-size: 30%;
+  --progress-bar-indeterminate-animation-duration: 1.5s;
+  border-radius: var(--progress-bar-radius);
+  background: var(--bg-elevated);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  progress.rift-progress {
+    --progress-bar-indeterminate-animation-duration: 10s;
+  }
+}
+
+progress.rift-progress:indeterminate {
+  --progress-bar-animation: progress-bar-indeterminate
+    var(--progress-bar-indeterminate-animation-duration) infinite linear;
+}
+
+progress.rift-progress::-webkit-progress-bar {
+  background: transparent;
+}
+
+progress.rift-progress::-webkit-progress-value {
+  background: var(--accent);
+  border-radius: var(--progress-bar-radius);
+  transition: inline-size 0.25s;
+  animation: var(--progress-bar-animation, revert-rule);
+}
+
+progress.rift-progress::-moz-progress-bar {
+  background: var(--accent);
+  border-radius: var(--progress-bar-radius);
+  transition: inline-size 0.25s;
+  animation: var(--progress-bar-animation, revert-rule);
+}
+
+@keyframes progress-bar-indeterminate {
+  from,
+  to {
+    inline-size: var(--progress-bar-indeterminate-size);
+    margin-right: auto;
+  }
+  from {
+    translate: -100%;
+  }
+  to {
+    translate: 100cqi;
+  }
+}

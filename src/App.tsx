@@ -16,14 +16,17 @@ import { hasNativeFileBridge, invokeCommand, listenEvent } from '@/lib/tauri';
 import { notify } from '@/store/useNotificationStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useTabsStore } from '@/store/useTabsStore';
+import { useUpdaterStore } from '@/store/useUpdaterStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import type {
+  AppUpdateProgress,
   GitRemoteUpdateInfo,
   GitSyncActionResult,
   GitSyncStatus,
 } from '@/types/storage';
 
 const REMOTE_UPDATE_TOAST_ID = 'git-remote-updates';
+const APP_UPDATE_TOAST_ID = 'app-update-available';
 
 export function App() {
   const loadWorkspace = useWorkspaceStore((s) => s.loadWorkspace);
@@ -203,6 +206,7 @@ export function App() {
       await loadWorkspace();
       await loadSessionTabs();
       if (hasNativeFileBridge()) {
+        void useUpdaterStore.getState().initRuntimeInfo();
         try {
           const status = await invokeCommand<GitSyncStatus>('get_git_sync_status_cmd');
           if (status && typeof status.enabled === 'boolean') {
@@ -217,6 +221,61 @@ export function App() {
       }
     })();
   }, [loadWorkspace, loadSessionTabs]);
+
+  React.useEffect(() => {
+    if (!hasNativeFileBridge()) return;
+    let active = true;
+    const timer = setTimeout(() => {
+      if (!active) return;
+      if (useSettingsStore.getState().settings.autoCheckUpdates === false) {
+        return;
+      }
+      void useUpdaterStore
+        .getState()
+        .checkForUpdates({ silent: true })
+        .then((result) => {
+          if (!active || !result?.available) return;
+          notify.info(`RiftQL v${result.availableVersion ?? 'update'} available`, {
+            id: APP_UPDATE_TOAST_ID,
+            durationMs: 0,
+            description: result.canAutoInstall
+              ? `You are running v${result.currentVersion}. Install the update now or open Settings.`
+              : `You are running v${result.currentVersion}. Download the installer from GitHub Releases.`,
+            actions: [
+              {
+                label: result.canAutoInstall ? 'Update Now' : 'View Update',
+                variant: 'primary',
+                onClick: () => {
+                  notify.dismiss(APP_UPDATE_TOAST_ID);
+                  openSettings('updates');
+                  if (result.canAutoInstall) {
+                    void useUpdaterStore.getState().installUpdate();
+                  }
+                },
+              },
+              {
+                label: 'Settings',
+                variant: 'secondary',
+                onClick: () => {
+                  notify.dismiss(APP_UPDATE_TOAST_ID);
+                  openSettings('updates');
+                },
+              },
+              {
+                label: 'Later',
+                variant: 'ghost',
+                onClick: () => notify.dismiss(APP_UPDATE_TOAST_ID),
+              },
+            ],
+          });
+        });
+    }, 3000);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [openSettings]);
 
   React.useEffect(() => {
     let active = true;
@@ -262,6 +321,12 @@ export function App() {
     void register<GitRemoteUpdateInfo>('riftql://git-remote-updates', (info) => {
       if (info && typeof info.behind === 'number' && info.behind > 0) {
         presentRemoteUpdateNotification(info);
+      }
+    });
+
+    void register<AppUpdateProgress>('riftql://app-update-progress', (progress) => {
+      if (progress && typeof progress.stage === 'string') {
+        useUpdaterStore.getState().setProgress(progress);
       }
     });
 

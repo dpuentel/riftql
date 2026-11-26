@@ -144,6 +144,34 @@ export interface AppSettings {
   customShortcuts: Record<string, string>;
   uiFontSize: number;
   codeFontSize: number;
+  autoCheckUpdates?: boolean;
+}
+
+export interface AppRuntimeInfo {
+  version: string;
+  platform: string;
+  arch: string;
+  updaterConfigured: boolean;
+  isAppimage: boolean;
+}
+
+export interface AppUpdateInfo {
+  currentVersion: string;
+  available: boolean;
+  availableVersion?: string | null;
+  releaseNotes?: string | null;
+  publishedAt?: string | null;
+  releaseUrl: string;
+  canAutoInstall: boolean;
+  autoInstallUnavailableReason?: string | null;
+  checkedAt: string;
+}
+
+export interface AppUpdateProgress {
+  stage: 'downloading' | 'installing' | 'restarting' | string;
+  downloadedBytes: number;
+  totalBytes?: number | null;
+  percent?: number | null;
 }
 
 export interface StorageInfo {

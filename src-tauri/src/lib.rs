@@ -39,6 +39,13 @@ pub fn run() {
                 let _ = sync_manager.sync_from_disk(&database);
             }
 
+            let pubkey_configured = commands::updater::has_configured_updater_pubkey(app);
+            if pubkey_configured {
+                app.handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())?;
+            }
+            app.manage(commands::updater::UpdaterRuntimeState { pubkey_configured });
+
             app.manage(database);
             app.manage(sync_manager);
             app.manage(InFlightRegistry::default());
@@ -93,6 +100,10 @@ pub fn run() {
             commands::http::send_http_request_cmd,
             commands::http::cancel_http_request_cmd,
             commands::http::save_response_body_to_file_cmd,
+            commands::updater::get_app_runtime_info_cmd,
+            commands::updater::check_app_update_cmd,
+            commands::updater::install_app_update_cmd,
+            commands::updater::open_external_url_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running RiftQL");

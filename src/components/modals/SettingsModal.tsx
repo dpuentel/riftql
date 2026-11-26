@@ -7,6 +7,7 @@ import {
   Copy,
   Database as DatabaseIcon,
   Download,
+  ExternalLink,
   Eye,
   EyeOff,
   FolderGit2,
@@ -53,6 +54,7 @@ import {
   getEffectiveShortcuts,
   keyboardEventToCombo,
 } from '@/lib/shortcuts';
+import { formatBytes, formatRelativeTime } from '@/lib/format';
 import { exportJsonFile, importJsonFileViaDialog } from '@/lib/file-io';
 import {
   hasNativeFileBridge,
@@ -68,6 +70,7 @@ import {
   useSettingsStore,
 } from '@/store/useSettingsStore';
 import { useTabsStore } from '@/store/useTabsStore';
+import { useUpdaterStore } from '@/store/useUpdaterStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import type { ShortcutActionId, ShortcutDefinition } from '@/types/shortcuts';
 import type {
@@ -82,7 +85,7 @@ import type {
   WorkspaceExport,
 } from '@/types/storage';
 
-export type SettingsTab = 'general' | 'network' | 'shortcuts' | 'data' | 'git-sync';
+export type SettingsTab = 'general' | 'network' | 'shortcuts' | 'data' | 'git-sync' | 'updates';
 
 function extractErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof Error && err.message) return err.message;
@@ -124,6 +127,19 @@ export function SettingsModal({
   const loadWorkspace = useWorkspaceStore((s) => s.loadWorkspace);
   const loadSessionTabs = useTabsStore((s) => s.loadSessionTabs);
   const syncTabsWithWorkspace = useTabsStore((s) => s.syncTabsWithWorkspace);
+
+  const currentVersion = useUpdaterStore((s) => s.currentVersion);
+  const runtimeInfo = useUpdaterStore((s) => s.runtimeInfo);
+  const updateInfo = useUpdaterStore((s) => s.updateInfo);
+  const checkingUpdates = useUpdaterStore((s) => s.checking);
+  const installingUpdate = useUpdaterStore((s) => s.installing);
+  const updateProgress = useUpdaterStore((s) => s.progress);
+  const updaterError = useUpdaterStore((s) => s.error);
+  const lastCheckedAt = useUpdaterStore((s) => s.lastCheckedAt);
+  const initRuntimeInfo = useUpdaterStore((s) => s.initRuntimeInfo);
+  const checkForUpdates = useUpdaterStore((s) => s.checkForUpdates);
+  const installUpdate = useUpdaterStore((s) => s.installUpdate);
+  const openReleaseUrl = useUpdaterStore((s) => s.openReleaseUrl);
 
   const [activeTab, setActiveTab] = React.useState<SettingsTab>(initialTab);
   const [shortcutFilter, setShortcutFilter] = React.useState('');
@@ -232,6 +248,8 @@ export function SettingsModal({
     setActiveTab(initialTab);
 
     if (hasNativeFileBridge()) {
+      void initRuntimeInfo();
+
       void invokeCommand<StorageInfo>('get_storage_info_cmd')
         .then((info) => {
           if (info && typeof info.currentDataDir === 'string') setStorageInfo(info);
@@ -710,6 +728,16 @@ export function SettingsModal({
             <TabsTrigger value="git-sync">
               <GitBranch className="h-3.5 w-3.5" />
               <span>Git Sync</span>
+            </TabsTrigger>
+            <TabsTrigger value="updates">
+              <Download className="h-3.5 w-3.5" />
+              <span>Updates</span>
+              {updateInfo?.available && (
+                <span
+                  aria-label="Update available"
+                  className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]"
+                />
+              )}
             </TabsTrigger>
           </TabsList>
 
@@ -1942,6 +1970,172 @@ export function SettingsModal({
                 )}
               </>
             )}
+          </TabsContent>
+
+          {/* Updates Tab */}
+          <TabsContent
+            value="updates"
+            className="min-h-0 flex-1 flex flex-col gap-3 overflow-y-auto pt-3 pr-1 rift-scroll"
+          >
+            <div className="flex flex-col gap-3 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-col gap-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-medium text-[var(--text-primary)]">
+                      Current Version
+                    </span>
+                    <Badge variant="default" className="font-mono-code tabular-nums">
+                      v{currentVersion}
+                    </Badge>
+                    {checkingUpdates ? (
+                      <Badge variant="default">Checking…</Badge>
+                    ) : updateInfo?.available ? (
+                      <Badge variant="accent" className="font-mono-code tabular-nums">
+                        v{updateInfo.availableVersion} available
+                      </Badge>
+                    ) : updateInfo ? (
+                      <Badge variant="success">Up to date</Badge>
+                    ) : null}
+                    {runtimeInfo && (
+                      <Badge variant="default" className="font-mono-code">
+                        {runtimeInfo.platform}/{runtimeInfo.arch}
+                        {runtimeInfo.isAppimage ? ' (AppImage)' : ''}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="text-[0.75rem] text-[var(--text-secondary)]">
+                    {lastCheckedAt ? (
+                      <span className="tabular-nums">
+                        Last checked: {formatRelativeTime(lastCheckedAt)}
+                      </span>
+                    ) : (
+                      <span>
+                        Checks GitHub Releases (signed manifests) for newer desktop builds.
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="secondary"
+                    disabled={checkingUpdates || installingUpdate}
+                    onClick={() => void checkForUpdates()}
+                  >
+                    <RefreshCw
+                      className={cn('h-3.5 w-3.5', checkingUpdates && 'animate-spin')}
+                    />
+                    <span>{checkingUpdates ? 'Checking…' : 'Check for Updates'}</span>
+                  </Button>
+
+                  {updateInfo?.available && updateInfo.canAutoInstall && (
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="default"
+                      disabled={checkingUpdates || installingUpdate}
+                      onClick={() => void installUpdate()}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      <span>{installingUpdate ? 'Updating…' : 'Update Now'}</span>
+                    </Button>
+                  )}
+
+                  {updateInfo?.available && !updateInfo.canAutoInstall && (
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="default"
+                      onClick={() => void openReleaseUrl()}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      <span>Download from GitHub</span>
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {installingUpdate && (
+                <div className="flex flex-col gap-1.5 border-t border-[var(--border-subtle)] pt-2.5">
+                  <progress
+                    aria-label="Update download progress"
+                    className="rift-progress h-2 w-full"
+                    max={100}
+                    value={updateProgress?.percent ?? undefined}
+                  />
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className="flex items-center justify-between text-[0.75rem] text-[var(--text-secondary)] tabular-nums"
+                  >
+                    <span>
+                      {updateProgress?.stage === 'installing'
+                        ? 'Verifying signature & installing update…'
+                        : updateProgress?.stage === 'restarting'
+                          ? 'Restarting RiftQL…'
+                          : 'Downloading update package…'}
+                    </span>
+                    <span className="font-mono-code">
+                      {formatBytes(updateProgress?.downloadedBytes ?? 0)}
+                      {updateProgress?.totalBytes
+                        ? ` / ${formatBytes(updateProgress.totalBytes)}`
+                        : ''}
+                      {typeof updateProgress?.percent === 'number'
+                        ? ` (${updateProgress.percent}%)`
+                        : ''}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {updateInfo?.available &&
+                !updateInfo.canAutoInstall &&
+                updateInfo.autoInstallUnavailableReason && (
+                  <div className="flex items-start gap-2 rounded-md border border-[#D97706]/30 bg-[#D97706]/10 px-2.5 py-2 text-[0.75rem] text-[#D97706] dark:border-[#FBBF24]/30 dark:text-[#FBBF24]">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>{updateInfo.autoInstallUnavailableReason}</span>
+                  </div>
+                )}
+
+              {updaterError && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2 rounded-md border border-[#F87171]/40 bg-[#F87171]/10 px-2.5 py-2 text-[0.75rem] text-[#DC2626] dark:text-[#F87171]"
+                >
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>{updaterError}</span>
+                </div>
+              )}
+
+              {updateInfo?.available && updateInfo.releaseNotes && (
+                <div className="flex flex-col gap-1 border-t border-[var(--border-subtle)] pt-2.5">
+                  <span className="text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                    Release Notes (v{updateInfo.availableVersion})
+                  </span>
+                  <div className="max-h-48 overflow-y-auto rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2.5 font-mono-code text-[0.75rem] whitespace-pre-wrap text-[var(--text-secondary)] rift-scroll">
+                    {updateInfo.releaseNotes}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <label className="flex items-center justify-between rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-2">
+              <div>
+                <div className="text-xs font-medium text-[var(--text-primary)]">
+                  Check for updates on startup
+                </div>
+                <div className="text-[0.75rem] text-[var(--text-secondary)]">
+                  Silently checks for new RiftQL releases in the background when online.
+                </div>
+              </div>
+              <Switch
+                aria-label="Check for updates on startup"
+                checked={settings.autoCheckUpdates ?? true}
+                onCheckedChange={(autoCheckUpdates) => void updateSettings({ autoCheckUpdates })}
+              />
+            </label>
           </TabsContent>
         </Tabs>
 

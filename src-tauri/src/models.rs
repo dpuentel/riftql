@@ -373,6 +373,8 @@ pub struct AppSettings {
     pub ui_font_size: u16,
     #[serde(default = "default_code_font_size")]
     pub code_font_size: u16,
+    #[serde(default = "default_true")]
+    pub auto_check_updates: bool,
 }
 
 impl Default for AppSettings {
@@ -389,6 +391,7 @@ impl Default for AppSettings {
             custom_shortcuts: HashMap::new(),
             ui_font_size: default_ui_font_size(),
             code_font_size: default_code_font_size(),
+            auto_check_updates: true,
         }
     }
 }
@@ -650,4 +653,43 @@ pub struct HttpExecutionResponse {
     pub body_text: Option<String>,
     pub body_base64: Option<String>,
     pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AppRuntimeInfo {
+    pub version: String,
+    pub platform: String,
+    pub arch: String,
+    pub updater_configured: bool,
+    pub is_appimage: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUpdateInfo {
+    pub current_version: String,
+    pub available: bool,
+    #[serde(default)]
+    pub available_version: Option<String>,
+    #[serde(default)]
+    pub release_notes: Option<String>,
+    #[serde(default)]
+    pub published_at: Option<String>,
+    pub release_url: String,
+    pub can_auto_install: bool,
+    #[serde(default)]
+    pub auto_install_unavailable_reason: Option<String>,
+    pub checked_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUpdateProgress {
+    pub stage: String,
+    pub downloaded_bytes: u64,
+    #[serde(default)]
+    pub total_bytes: Option<u64>,
+    #[serde(default)]
+    pub percent: Option<u8>,
 }

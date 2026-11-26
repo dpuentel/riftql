@@ -5,11 +5,13 @@ import { SettingsModal } from '@/components/modals/SettingsModal';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { setTauriBridgeAdapter } from '@/lib/tauri';
 import { DEFAULT_SETTINGS, useSettingsStore } from '@/store/useSettingsStore';
+import { useUpdaterStore } from '@/store/useUpdaterStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 
 describe('SettingsModal', () => {
   beforeEach(async () => {
     setTauriBridgeAdapter(null);
+    useUpdaterStore.getState().reset();
     await useSettingsStore.getState().loadSettings({ ...DEFAULT_SETTINGS });
   });
 
@@ -633,5 +635,65 @@ describe('SettingsModal', () => {
     expect(onRemoteUpdateFound).toHaveBeenCalledWith(
       expect.objectContaining({ repoName: 'team-repo', behind: 1 }),
     );
+  });
+
+  it('checks for updates, renders release notes, triggers Update Now, and toggles startup update checks', async () => {
+    const user = userEvent.setup();
+    const calls: string[] = [];
+
+    setTauriBridgeAdapter({
+      invoke: async <T,>(cmd: string) => {
+        calls.push(cmd);
+        if (cmd === 'get_app_runtime_info_cmd') {
+          return {
+            version: '0.4.0',
+            platform: 'windows',
+            arch: 'x86_64',
+            updaterConfigured: true,
+            isAppimage: false,
+          } as T;
+        }
+        if (cmd === 'check_app_update_cmd') {
+          return {
+            currentVersion: '0.4.0',
+            available: true,
+            availableVersion: '0.5.0',
+            releaseNotes: '### Highlights\n- One-click auto updates',
+            publishedAt: '2026-11-26T18:00:00Z',
+            releaseUrl: 'https://github.com/dpuentel/riftql/releases/tag/v0.5.0',
+            canAutoInstall: true,
+            autoInstallUnavailableReason: null,
+            checkedAt: new Date().toISOString(),
+          } as T;
+        }
+        if (cmd === 'install_app_update_cmd') {
+          return undefined as T;
+        }
+        throw new Error(`Tauri runtime unavailable for command "${cmd}"`);
+      },
+      openFile: vi.fn(async () => null),
+      saveFile: vi.fn(async () => null),
+    });
+
+    render(
+      <TooltipProvider>
+        <SettingsModal open onOpenChange={() => {}} />
+      </TooltipProvider>,
+    );
+
+    await user.click(screen.getByRole('tab', { name: /updates/i }));
+    expect(await screen.findByText('v0.4.0')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /check for updates/i }));
+    expect(await screen.findByText(/v0\.5\.0 available/i)).toBeInTheDocument();
+    expect(screen.getByText(/one-click auto updates/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /update now/i }));
+    expect(calls).toContain('install_app_update_cmd');
+
+    const startupSwitch = screen.getByRole('switch', { name: /check for updates on startup/i });
+    expect(startupSwitch).toHaveAttribute('data-state', 'checked');
+    await user.click(startupSwitch);
+    expect(useSettingsStore.getState().settings.autoCheckUpdates).toBe(false);
   });
 });

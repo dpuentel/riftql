@@ -35,6 +35,9 @@ pub enum AppError {
 
     #[error("Git error: {0}")]
     Git(String),
+
+    #[error("Updater error: {0}")]
+    Updater(String),
 }
 
 #[derive(Debug, Serialize)]
@@ -58,6 +61,7 @@ impl AppError {
             AppError::NotFound(_) => "NOT_FOUND",
             AppError::Sync(_) => "SYNC_ERROR",
             AppError::Git(_) => "GIT_ERROR",
+            AppError::Updater(_) => "UPDATER_ERROR",
         }
     }
 }

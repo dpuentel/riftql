@@ -146,15 +146,33 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Configure updater build arguments
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: build-args
+        shell: bash
+        env:
+          BASE_ARGS: ${{ matrix.args }}
+          HAS_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        run: |
+          ARGS="$BASE_ARGS"
+          if [[ "$HAS_SIGNING_KEY" == "true" ]]; then
+            printf '{"bundle":{"createUpdaterArtifacts":true}}\n' > src-tauri/tauri.updater.conf.json
+            ARGS="${ARGS:+$ARGS }--config src-tauri/tauri.updater.conf.json"
+          fi
+          echo "args=${ARGS}" >> "$GITHUB_OUTPUT"
+
       - name: Build and attach binaries to GitHub Draft Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           releaseId: ${{ needs.prepare-release.outputs.release_id }}
           tagName: ${{ github.ref_name }}
-          args: ${{ matrix.args }}
+          uploadUpdaterJson: false
+          args: ${{ steps.build-args.outputs.args }}
 
       - name: Build Tauri bundle (manual dispatch)
         if: github.event_name == 'workflow_dispatch'
@@ -176,6 +194,39 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 26
+
+      - name: Generate consolidated latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: node scripts/generate-latest-json.mjs --out latest.json
+
+      - name: Upload consolidated latest.json to draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          if [[ -f latest.json ]]; then
+            EXISTING_ASSET_ID="$(gh api "repos/${REPO}/releases/${RELEASE_ID}/assets" \
+              --jq '.[] | select(.name == "latest.json") | .id' | head -n 1 || true)"
+            if [[ -n "$EXISTING_ASSET_ID" ]]; then
+              gh api -X DELETE "repos/${REPO}/releases/assets/${EXISTING_ASSET_ID}"
+            fi
+            gh api -X POST "https://uploads.github.com/repos/${REPO}/releases/${RELEASE_ID}/assets?name=latest.json" \
+              -H "Content-Type: application/json" \
+              --data-binary @latest.json
+          fi
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
