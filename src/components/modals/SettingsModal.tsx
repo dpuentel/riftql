@@ -3,9 +3,12 @@ import {
   AlertTriangle,
   Download,
   Keyboard,
+  Minus,
+  Plus,
   RotateCcw,
   Search,
   Settings,
+  Type,
   Upload,
 } from 'lucide-react';
 import { ActionTooltip } from '@/components/ui/action-tooltip';
@@ -32,7 +35,13 @@ import {
 import { exportJsonFile, importJsonFileViaDialog } from '@/lib/file-io';
 import { hasNativeFileBridge } from '@/lib/tauri';
 import { cn } from '@/lib/utils';
-import { useSettingsStore } from '@/store/useSettingsStore';
+import {
+  MAX_CODE_FONT_SIZE,
+  MAX_UI_FONT_SIZE,
+  MIN_CODE_FONT_SIZE,
+  MIN_UI_FONT_SIZE,
+  useSettingsStore,
+} from '@/store/useSettingsStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import type { ShortcutActionId, ShortcutDefinition } from '@/types/shortcuts';
 import type { SplitLayout, ThemePreference, WorkspaceExport } from '@/types/storage';
@@ -274,6 +283,150 @@ export function SettingsModal({
                 ))}
               </div>
             </div>
+
+            {/* Typography / Font Sizes */}
+            <div className="flex flex-col gap-3 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--text-primary)]">
+                <Type className="h-3.5 w-3.5 text-[var(--accent)]" />
+                <span>Typography &amp; Font Size</span>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label
+                    htmlFor="ui-font-size-slider"
+                    className="text-xs font-medium text-[var(--text-primary)]"
+                  >
+                    Interface Font Size
+                  </label>
+                  <Badge variant="accent" className="font-mono-code tabular-nums">
+                    {settings.uiFontSize}px
+                  </Badge>
+                </div>
+
+                <div className="grid grid-cols-4 gap-1.5">
+                  {(
+                    [
+                      { label: 'Compact', size: 14 },
+                      { label: 'Default', size: 16 },
+                      { label: 'Comfortable', size: 18 },
+                      { label: 'Large', size: 20 },
+                    ] as const
+                  ).map((preset) => (
+                    <button
+                      key={preset.size}
+                      type="button"
+                      onClick={() => void updateSettings({ uiFontSize: preset.size })}
+                      className={cn(
+                        'cursor-pointer rounded border px-2 py-1 text-[0.75rem] font-medium transition-colors',
+                        settings.uiFontSize === preset.size
+                          ? 'border-[var(--accent)] bg-[var(--accent-muted)] text-[var(--text-primary)]'
+                          : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
+                      )}
+                    >
+                      {preset.label} ({preset.size}px)
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="icon-sm"
+                    variant="secondary"
+                    aria-label="Decrease interface font size"
+                    disabled={settings.uiFontSize <= MIN_UI_FONT_SIZE}
+                    onClick={() =>
+                      void updateSettings({ uiFontSize: settings.uiFontSize - 1 })
+                    }
+                  >
+                    <Minus className="h-3 w-3" />
+                  </Button>
+                  <input
+                    id="ui-font-size-slider"
+                    type="range"
+                    min={MIN_UI_FONT_SIZE}
+                    max={MAX_UI_FONT_SIZE}
+                    step={1}
+                    value={settings.uiFontSize}
+                    aria-label="Interface font size"
+                    onChange={(e) =>
+                      void updateSettings({ uiFontSize: Number(e.target.value) })
+                    }
+                    className="flex-1 cursor-pointer accent-[var(--accent)]"
+                  />
+                  <Button
+                    size="icon-sm"
+                    variant="secondary"
+                    aria-label="Increase interface font size"
+                    disabled={settings.uiFontSize >= MAX_UI_FONT_SIZE}
+                    onClick={() =>
+                      void updateSettings({ uiFontSize: settings.uiFontSize + 1 })
+                    }
+                  >
+                    <Plus className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5 border-t border-[var(--border-subtle)] pt-2.5">
+                <div className="flex items-center justify-between">
+                  <label
+                    htmlFor="code-font-size-slider"
+                    className="text-xs font-medium text-[var(--text-primary)]"
+                  >
+                    Code Editor Font Size
+                  </label>
+                  <Badge variant="accent" className="font-mono-code tabular-nums">
+                    {settings.codeFontSize}px
+                  </Badge>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="icon-sm"
+                    variant="secondary"
+                    aria-label="Decrease code font size"
+                    disabled={settings.codeFontSize <= MIN_CODE_FONT_SIZE}
+                    onClick={() =>
+                      void updateSettings({ codeFontSize: settings.codeFontSize - 1 })
+                    }
+                  >
+                    <Minus className="h-3 w-3" />
+                  </Button>
+                  <input
+                    id="code-font-size-slider"
+                    type="range"
+                    min={MIN_CODE_FONT_SIZE}
+                    max={MAX_CODE_FONT_SIZE}
+                    step={1}
+                    value={settings.codeFontSize}
+                    aria-label="Code font size"
+                    onChange={(e) =>
+                      void updateSettings({ codeFontSize: Number(e.target.value) })
+                    }
+                    className="flex-1 cursor-pointer accent-[var(--accent)]"
+                  />
+                  <Button
+                    size="icon-sm"
+                    variant="secondary"
+                    aria-label="Increase code font size"
+                    disabled={settings.codeFontSize >= MAX_CODE_FONT_SIZE}
+                    onClick={() =>
+                      void updateSettings({ codeFontSize: settings.codeFontSize + 1 })
+                    }
+                  >
+                    <Plus className="h-3 w-3" />
+                  </Button>
+                </div>
+
+                <pre
+                  style={{ fontSize: `${settings.codeFontSize}px` }}
+                  className="overflow-hidden rounded border border-[var(--border-subtle)] bg-[var(--cm-bg)] px-2.5 py-1.5 font-mono-code text-[var(--text-primary)]"
+                >
+                  {'query GetUser($id: ID!) { user(id: $id) { name } }'}
+                </pre>
+              </div>
+            </div>
           </TabsContent>
 
           {/* Network Tab */}
@@ -283,7 +436,7 @@ export function SettingsModal({
                 <div className="text-xs font-medium text-[var(--text-primary)]">
                   Verify SSL Certificates
                 </div>
-                <div className="text-[11px] text-[var(--text-secondary)]">
+                <div className="text-[0.75rem] text-[var(--text-secondary)]">
                   Disable to allow self-signed certificates on localhost/staging.
                 </div>
               </div>
@@ -299,7 +452,7 @@ export function SettingsModal({
                 <div className="text-xs font-medium text-[var(--text-primary)]">
                   Follow Redirects
                 </div>
-                <div className="text-[11px] text-[var(--text-secondary)]">
+                <div className="text-[0.75rem] text-[var(--text-secondary)]">
                   Automatically follow 3xx redirect responses up to max hops.
                 </div>
               </div>
@@ -315,7 +468,7 @@ export function SettingsModal({
                 <div className="text-xs font-medium text-[var(--text-primary)]">
                   Automatic Domain Cookie Jar
                 </div>
-                <div className="text-[11px] text-[var(--text-secondary)]">
+                <div className="text-[0.75rem] text-[var(--text-secondary)]">
                   Capture Set-Cookie headers and resend matching cookies per domain.
                 </div>
               </div>
@@ -328,7 +481,7 @@ export function SettingsModal({
 
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-medium text-[var(--text-secondary)]">
+                <label className="text-[0.75rem] font-medium text-[var(--text-secondary)]">
                   Max Redirects
                 </label>
                 <Input
@@ -347,7 +500,7 @@ export function SettingsModal({
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-medium text-[var(--text-secondary)]">
+                <label className="text-[0.75rem] font-medium text-[var(--text-secondary)]">
                   Default Timeout (ms)
                 </label>
                 <Input
@@ -429,7 +582,7 @@ export function SettingsModal({
             <div className="max-h-72 overflow-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] rift-scroll">
               <table className="w-full border-collapse text-left text-xs">
                 <thead>
-                  <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/60 text-[11px] text-[var(--text-secondary)]">
+                  <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/60 text-[0.75rem] text-[var(--text-secondary)]">
                     <th className="px-2.5 py-1.5">Action</th>
                     <th className="px-2.5 py-1.5">Category</th>
                     <th className="px-2.5 py-1.5 text-right">Shortcut</th>
@@ -461,7 +614,7 @@ export function SettingsModal({
                               setRecordingId(isRecording ? null : def.id);
                             }}
                             className={cn(
-                              'cursor-pointer rounded border px-2 py-0.5 font-mono-code text-[11px] transition-colors',
+                              'cursor-pointer rounded border px-2 py-0.5 font-mono-code text-[0.75rem] transition-colors',
                               isRecording
                                 ? 'border-[var(--accent)] bg-[var(--accent-muted)] text-[var(--accent)]'
                                 : isCustom

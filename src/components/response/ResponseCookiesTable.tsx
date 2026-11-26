@@ -38,7 +38,7 @@ export function ResponseCookiesTable({
         <div className="overflow-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] rift-scroll">
           <table className="w-full border-collapse text-left text-xs">
             <thead>
-              <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/60 text-[11px] font-medium text-[var(--text-secondary)]">
+              <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/60 text-[0.75rem] font-medium text-[var(--text-secondary)]">
                 <th className="px-2.5 py-1.5">Name</th>
                 <th className="px-2.5 py-1.5">Value</th>
                 <th className="px-2.5 py-1.5">Domain</th>
@@ -65,7 +65,7 @@ export function ResponseCookiesTable({
                   <td className="px-2.5 py-1.5 font-mono-code text-[var(--text-secondary)]">
                     {c.path || '/'}
                   </td>
-                  <td className="px-2.5 py-1.5 font-mono-code text-[11px] text-[var(--text-secondary)] tabular-nums">
+                  <td className="px-2.5 py-1.5 font-mono-code text-[0.75rem] text-[var(--text-secondary)] tabular-nums">
                     {c.maxAge !== undefined
                       ? `${c.maxAge}s`
                       : c.expires || 'Session'}

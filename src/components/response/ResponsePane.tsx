@@ -129,7 +129,7 @@ export function ResponsePane({ onOpenCookieJar }: ResponsePaneProps) {
           <div className="text-xs font-semibold text-[var(--text-primary)]">
             {tab.error.code || 'REQUEST_FAILED'}
           </div>
-          <p className="font-mono-code text-[11px] break-all text-[var(--text-secondary)]">
+          <p className="font-mono-code text-[0.75rem] break-all text-[var(--text-secondary)]">
             {tab.error.message}
           </p>
           {isSslError && tab.draft.settings.verifySsl !== false && (
@@ -162,9 +162,9 @@ export function ResponsePane({ onOpenCookieJar }: ResponsePaneProps) {
         <div className="text-xs font-medium text-[var(--text-secondary)]">
           No response yet.
         </div>
-        <div className="text-[11px] text-[var(--text-tertiary)]">
+        <div className="text-[0.75rem] text-[var(--text-tertiary)]">
           Press{' '}
-          <kbd className="rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1.5 py-0.5 font-mono-code text-[10px] text-[var(--text-secondary)]">
+          <kbd className="rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1.5 py-0.5 font-mono-code text-[0.6875rem] text-[var(--text-secondary)]">
             {sendShortcut}
           </kbd>{' '}
           to send the request.
@@ -274,7 +274,7 @@ export function ResponsePane({ onOpenCookieJar }: ResponsePaneProps) {
           <div className="overflow-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] rift-scroll">
             <table className="w-full border-collapse text-left text-xs">
               <thead>
-                <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/60 text-[11px] font-medium text-[var(--text-secondary)]">
+                <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/60 text-[0.75rem] font-medium text-[var(--text-secondary)]">
                   <th className="w-1/3 px-2.5 py-1.5">Header</th>
                   <th className="px-2.5 py-1.5">Value</th>
                 </tr>

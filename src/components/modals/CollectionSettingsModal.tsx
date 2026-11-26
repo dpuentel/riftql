@@ -93,13 +93,13 @@ export function CollectionSettingsModal({
 
         <form onSubmit={(e) => void handleSave(e)} className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-medium text-[var(--text-secondary)]">Name</label>
+            <label className="text-[0.75rem] font-medium text-[var(--text-secondary)]">Name</label>
             <Input value={name} onChange={(e) => setName(e.target.value)} required />
           </div>
 
           {!folder && (
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-medium text-[var(--text-secondary)]">
+              <label className="text-[0.75rem] font-medium text-[var(--text-secondary)]">
                 Description
               </label>
               <Input
@@ -132,7 +132,7 @@ export function CollectionSettingsModal({
                   <div className="max-h-48 overflow-auto rounded border border-[var(--border-subtle)] bg-[var(--bg-base)] rift-scroll">
                     <table className="w-full border-collapse text-left text-xs">
                       <thead>
-                        <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/60 text-[11px] text-[var(--text-secondary)]">
+                        <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/60 text-[0.75rem] text-[var(--text-secondary)]">
                           <th className="w-8 px-2 py-1 text-center">On</th>
                           <th className="px-2 py-1">Key</th>
                           <th className="px-2 py-1">Value</th>

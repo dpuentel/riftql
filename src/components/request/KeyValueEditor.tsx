@@ -76,7 +76,7 @@ export function KeyValueEditor<T extends RowItem>({
       <div className="overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
         <table className="w-full border-collapse text-left text-xs">
           <thead>
-            <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/60 text-[11px] font-medium text-[var(--text-secondary)]">
+            <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/60 text-[0.75rem] font-medium text-[var(--text-secondary)]">
               <th className="w-8 px-2 py-1.5 text-center">On</th>
               <th className="px-2 py-1.5">Key</th>
               {allowFile && <th className="w-24 px-2 py-1.5">Type</th>}
@@ -134,7 +134,7 @@ export function KeyValueEditor<T extends RowItem>({
                               itemType: e.target.value as 'text' | 'file',
                             } as unknown as Partial<T>)
                           }
-                          className="h-6 w-full rounded border border-[var(--border-subtle)] bg-[var(--bg-base)] px-1.5 text-[11px] text-[var(--text-primary)]"
+                          className="h-6 w-full rounded border border-[var(--border-subtle)] bg-[var(--bg-base)] px-1.5 text-[0.75rem] text-[var(--text-primary)]"
                         >
                           <option value="text">Text</option>
                           <option value="file">File</option>
@@ -155,7 +155,7 @@ export function KeyValueEditor<T extends RowItem>({
                           {item.filePath && (
                             <span
                               title={item.filePath}
-                              className="max-w-[220px] truncate font-mono-code text-[11px] text-[var(--text-secondary)]"
+                              className="max-w-[220px] truncate font-mono-code text-[0.75rem] text-[var(--text-secondary)]"
                             >
                               {item.filePath}
                             </span>

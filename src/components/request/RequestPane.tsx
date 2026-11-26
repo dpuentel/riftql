@@ -338,14 +338,14 @@ export function RequestPane({
                   <button
                     type="button"
                     aria-label="Inspect URL variables"
-                    className="absolute right-1.5 inline-flex items-center gap-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-1.5 py-0.5 font-mono-code text-[10px] text-[var(--accent)] hover:border-[var(--accent)]"
+                    className="absolute right-1.5 inline-flex items-center gap-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-1.5 py-0.5 font-mono-code text-[0.6875rem] text-[var(--accent)] hover:border-[var(--accent)]"
                   >
                     <Braces className="h-2.5 w-2.5" />
                     <span>{urlVars.length}</span>
                   </button>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-80">
-                  <div className="mb-1.5 text-[11px] font-semibold text-[var(--text-primary)]">
+                  <div className="mb-1.5 text-[0.75rem] font-semibold text-[var(--text-primary)]">
                     Resolved URL Variables
                   </div>
                   <div className="flex flex-col gap-1.5">
@@ -355,14 +355,14 @@ export function RequestPane({
                         className="flex items-center justify-between gap-2 rounded border border-[var(--border-subtle)] bg-[var(--bg-base)] px-2 py-1"
                       >
                         <div className="flex items-center gap-1.5 min-w-0">
-                          <span className="font-mono-code text-[11px] text-[var(--accent)]">
+                          <span className="font-mono-code text-[0.75rem] text-[var(--accent)]">
                             {`{{${v.name}}}`}
                           </span>
                           <Badge variant={v.source === 'unresolved' ? 'warning' : 'default'}>
                             {v.source}
                           </Badge>
                         </div>
-                        <span className="max-w-[130px] truncate font-mono-code text-[11px] text-[var(--text-secondary)]">
+                        <span className="max-w-[130px] truncate font-mono-code text-[0.75rem] text-[var(--text-secondary)]">
                           {v.source === 'unresolved'
                             ? 'Unresolved'
                             : v.isSecret
@@ -431,7 +431,7 @@ export function RequestPane({
                 type="button"
                 onClick={() => cycleOverride('verifySsl')}
                 className={cn(
-                  'cursor-pointer rounded border px-1.5 py-0.5 text-[10px] font-medium transition-colors',
+                  'cursor-pointer rounded border px-1.5 py-0.5 text-[0.6875rem] font-medium transition-colors',
                   draft.settings.verifySsl === false
                     ? 'border-[#FBBF24]/40 bg-[#FBBF24]/10 text-[#D97706] dark:text-[#FBBF24]'
                     : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
@@ -445,7 +445,7 @@ export function RequestPane({
                 type="button"
                 onClick={() => cycleOverride('sendCookies')}
                 className={cn(
-                  'cursor-pointer rounded border px-1.5 py-0.5 text-[10px] font-medium transition-colors',
+                  'cursor-pointer rounded border px-1.5 py-0.5 text-[0.6875rem] font-medium transition-colors',
                   draft.settings.sendCookies === false
                     ? 'border-[#FBBF24]/40 bg-[#FBBF24]/10 text-[#D97706] dark:text-[#FBBF24]'
                     : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
@@ -458,7 +458,7 @@ export function RequestPane({
               <button
                 type="button"
                 onClick={() => cycleOverride('followRedirects')}
-                className="cursor-pointer rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                className="cursor-pointer rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-[0.6875rem] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               >
                 {formatOverrideLabel(
                   'Redirects',

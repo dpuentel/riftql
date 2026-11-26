@@ -132,7 +132,7 @@ export function SchemaDocsPanel({
 
       {/* Breadcrumbs */}
       {!trimmedQuery && (
-        <div className="flex flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] px-2.5 py-1.5 text-[11px] text-[var(--text-secondary)]">
+        <div className="flex flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] px-2.5 py-1.5 text-[0.75rem] text-[var(--text-secondary)]">
           <button
             type="button"
             onClick={() => setBreadcrumbs([])}
@@ -166,7 +166,7 @@ export function SchemaDocsPanel({
 
             {matchingTypes.length > 0 && (
               <div className="flex flex-col gap-1">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                <div className="text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
                   Types ({matchingTypes.length})
                 </div>
                 {matchingTypes.map((t) => (
@@ -185,7 +185,7 @@ export function SchemaDocsPanel({
 
             {matchingFields.length > 0 && (
               <div className="flex flex-col gap-1">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                <div className="text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
                   Fields ({matchingFields.length})
                 </div>
                 {matchingFields.map(({ parentType, field }) => (
@@ -219,7 +219,7 @@ export function SchemaDocsPanel({
 
             {activeType.fields.length > 0 && (
               <div className="flex flex-col gap-2">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                <div className="text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
                   Fields
                 </div>
                 {activeType.fields.map((f) => (
@@ -262,14 +262,14 @@ export function SchemaDocsPanel({
                       <div className="mt-1 flex items-center gap-1.5">
                         <Badge variant="warning">Deprecated</Badge>
                         {f.deprecationReason && (
-                          <span className="text-[11px] text-[var(--text-secondary)]">
+                          <span className="text-[0.75rem] text-[var(--text-secondary)]">
                             {f.deprecationReason}
                           </span>
                         )}
                       </div>
                     )}
                     {f.description && (
-                      <p className="mt-1 text-[11px] text-[var(--text-secondary)]">
+                      <p className="mt-1 text-[0.75rem] text-[var(--text-secondary)]">
                         {f.description}
                       </p>
                     )}
@@ -280,7 +280,7 @@ export function SchemaDocsPanel({
 
             {activeType.enumValues.length > 0 && (
               <div className="flex flex-col gap-1.5">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                <div className="text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
                   Enum Values
                 </div>
                 {activeType.enumValues.map((ev) => (
@@ -290,7 +290,7 @@ export function SchemaDocsPanel({
                   >
                     <div className="font-semibold text-[var(--text-primary)]">{ev.name}</div>
                     {ev.description && (
-                      <div className="font-sans text-[11px] text-[var(--text-secondary)]">
+                      <div className="font-sans text-[0.75rem] text-[var(--text-secondary)]">
                         {ev.description}
                       </div>
                     )}
@@ -301,7 +301,7 @@ export function SchemaDocsPanel({
 
             {activeType.possibleTypes.length > 0 && (
               <div className="flex flex-col gap-1">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                <div className="text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
                   Possible Types
                 </div>
                 {activeType.possibleTypes.map((pt) => (
@@ -320,7 +320,7 @@ export function SchemaDocsPanel({
         ) : (
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+              <div className="text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
                 Root Types
               </div>
               {summary.queryTypeName && (
@@ -365,7 +365,7 @@ export function SchemaDocsPanel({
             </div>
 
             <div className="flex flex-col gap-1">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+              <div className="text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
                 All Types ({summary.types.length})
               </div>
               {summary.types.map((t) => (

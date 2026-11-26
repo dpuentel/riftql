@@ -21,6 +21,14 @@
             root.classList.toggle('light', !dark);
             if (meta) meta.setAttribute('content', dark ? 'dark' : 'light');
           }
+          var uiSize = Number(localStorage.getItem('riftql-ui-font-size'));
+          if (Number.isFinite(uiSize) && uiSize >= 13 && uiSize <= 22) {
+            root.style.setProperty('--rift-ui-font-size', uiSize + 'px');
+          }
+          var codeSize = Number(localStorage.getItem('riftql-code-font-size'));
+          if (Number.isFinite(codeSize) && codeSize >= 11 && codeSize <= 22) {
+            root.style.setProperty('--rift-code-font-size', codeSize + 'px');
+          }
         } catch (e) {}
       })();
     </script>

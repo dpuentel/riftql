@@ -111,7 +111,7 @@ export function CodeSnippetModal({ open, onOpenChange }: CodeSnippetModalProps) 
                   type="button"
                   onClick={() => setTarget(t.id)}
                   className={cn(
-                    'cursor-pointer rounded px-2.5 py-1 text-[11px] font-medium transition-colors',
+                    'cursor-pointer rounded px-2.5 py-1 text-[0.75rem] font-medium transition-colors',
                     target === t.id
                       ? 'bg-[var(--accent-muted)] text-[var(--accent)]'
                       : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]',

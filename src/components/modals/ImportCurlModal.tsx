@@ -82,7 +82,7 @@ export function ImportCurlModal({ open, onOpenChange }: ImportCurlModalProps) {
               <div className="flex items-center gap-2">
                 <span
                   className={cn(
-                    'rounded border px-1.5 py-0.5 font-mono-code text-[10px] font-semibold',
+                    'rounded border px-1.5 py-0.5 font-mono-code text-[0.6875rem] font-semibold',
                     getMethodBadgeClasses(
                       parsed.draft.protocol === 'graphql' ? 'GQL' : parsed.draft.method,
                     ),

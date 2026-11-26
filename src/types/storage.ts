@@ -140,6 +140,8 @@ export interface AppSettings {
   sendCookies: boolean;
   activeEnvironmentId?: string;
   customShortcuts: Record<string, string>;
+  uiFontSize: number;
+  codeFontSize: number;
 }
 
 export interface WorkspaceSnapshot {

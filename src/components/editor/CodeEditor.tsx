@@ -67,11 +67,12 @@ function buildRiftTheme(isDark: boolean): Extension {
           backgroundColor: 'var(--cm-bg)',
           color: 'var(--text-primary)',
           fontFamily: 'var(--font-mono)',
-          fontSize: '12px',
+          fontSize: 'var(--rift-code-font-size, 13px)',
           height: '100%',
         },
         '.cm-scroller': {
           fontFamily: 'var(--font-mono)',
+          fontSize: 'var(--rift-code-font-size, 13px)',
           lineHeight: '1.55',
           overflow: 'auto',
         },
@@ -87,7 +88,7 @@ function buildRiftTheme(isDark: boolean): Extension {
           backgroundColor: 'var(--cm-gutter-bg)',
           color: 'var(--cm-gutter-text)',
           borderRight: '1px solid var(--border-subtle)',
-          fontSize: '11px',
+          fontSize: 'calc(var(--rift-code-font-size, 13px) - 1px)',
           userSelect: 'none',
         },
         '.cm-activeLine': {
@@ -164,6 +165,8 @@ export function CodeEditor({
   ariaLabel = 'Code editor',
 }: CodeEditorProps) {
   const resolvedTheme = useSettingsStore((s) => s.resolvedTheme);
+  const uiFontSize = useSettingsStore((s) => s.settings.uiFontSize);
+  const codeFontSize = useSettingsStore((s) => s.settings.codeFontSize);
   const hostRef = React.useRef<HTMLDivElement | null>(null);
   const viewRef = React.useRef<EditorView | null>(null);
   const onChangeRef = React.useRef(onChange);
@@ -286,6 +289,11 @@ export function CodeEditor({
       effects: themeCompRef.current.reconfigure(buildRiftTheme(resolvedTheme === 'dark')),
     });
   }, [resolvedTheme]);
+
+  // Trigger CodeMirror layout re-measure when typography settings change
+  React.useEffect(() => {
+    viewRef.current?.requestMeasure();
+  }, [uiFontSize, codeFontSize]);
 
   // Sync language or lightweight mode
   React.useEffect(() => {

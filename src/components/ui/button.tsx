@@ -19,7 +19,7 @@ const buttonVariants = cva(
           'bg-transparent text-[var(--text-primary)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)]',
       },
       size: {
-        xs: 'h-6 px-2 text-[11px]',
+        xs: 'h-6 px-2 text-[0.75rem]',
         sm: 'h-7 px-2.5 text-xs',
         md: 'h-8 px-3 text-xs',
         icon: 'h-7 w-7 p-0',

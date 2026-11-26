@@ -98,7 +98,7 @@ export function BodyEditor({ body, onChange }: BodyEditorProps) {
               type="button"
               onClick={() => switchMode(m.mode)}
               className={cn(
-                'cursor-pointer rounded px-2 py-1 text-[11px] font-medium transition-colors',
+                'cursor-pointer rounded px-2 py-1 text-[0.75rem] font-medium transition-colors',
                 body.mode === m.mode
                   ? 'bg-[var(--accent-muted)] text-[var(--accent)]'
                   : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
@@ -132,7 +132,7 @@ export function BodyEditor({ body, onChange }: BodyEditorProps) {
               onChange({ ...body, language: lang as RawBodyLanguage })
             }
           >
-            <SelectTrigger className="h-6 w-32 text-[11px]" aria-label="Raw language">
+            <SelectTrigger className="h-6 w-32 text-[0.75rem]" aria-label="Raw language">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

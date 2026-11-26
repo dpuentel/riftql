@@ -74,7 +74,7 @@ export function GraphQLEditor() {
                   }))
                 }
               >
-                <SelectTrigger className="h-6 w-44 text-[11px]" aria-label="Operation">
+                <SelectTrigger className="h-6 w-44 text-[0.75rem]" aria-label="Operation">
                   <SelectValue placeholder="Operation" />
                 </SelectTrigger>
                 <SelectContent>
@@ -165,7 +165,7 @@ export function GraphQLEditor() {
           <button
             type="button"
             onClick={() => setShowVariables((v) => !v)}
-            className="flex cursor-pointer items-center justify-between px-2.5 py-1.5 text-[11px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            className="flex cursor-pointer items-center justify-between px-2.5 py-1.5 text-[0.75rem] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           >
             <span>Variables (JSON)</span>
             {showVariables ? (

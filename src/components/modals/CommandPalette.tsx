@@ -221,7 +221,7 @@ export function CommandPalette({
 
             <Command.Group
               heading="Quick Actions"
-              className="px-1 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]"
+              className="px-1 py-1 text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]"
             >
               {quickActions.map((act) => (
                 <Command.Item
@@ -235,7 +235,7 @@ export function CommandPalette({
                     <span>{act.label}</span>
                   </div>
                   {act.shortcutId && (
-                    <kbd className="rounded border border-[var(--border-subtle)] bg-[var(--bg-base)] px-1.5 py-0.5 font-mono-code text-[10px] text-[var(--text-secondary)]">
+                    <kbd className="rounded border border-[var(--border-subtle)] bg-[var(--bg-base)] px-1.5 py-0.5 font-mono-code text-[0.6875rem] text-[var(--text-secondary)]">
                       {shortcutLabel(act.shortcutId)}
                     </kbd>
                   )}
@@ -246,7 +246,7 @@ export function CommandPalette({
             {savedRequests.length > 0 && (
               <Command.Group
                 heading="Saved Requests"
-                className="mt-1 px-1 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]"
+                className="mt-1 px-1 py-1 text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]"
               >
                 {savedRequests.map((req) => {
                   const badge = req.protocol === 'graphql' ? 'GQL' : req.method;
@@ -261,7 +261,7 @@ export function CommandPalette({
                       <div className="flex min-w-0 items-center gap-2">
                         <span
                           className={cn(
-                            'w-9 shrink-0 font-mono-code text-[10px] font-semibold',
+                            'w-9 shrink-0 font-mono-code text-[0.6875rem] font-semibold',
                             getMethodColorClass(badge),
                           )}
                         >
@@ -269,12 +269,12 @@ export function CommandPalette({
                         </span>
                         <span className="truncate font-medium">{req.name}</span>
                         {colName && (
-                          <span className="truncate text-[11px] text-[var(--text-secondary)]">
+                          <span className="truncate text-[0.75rem] text-[var(--text-secondary)]">
                             {colName}
                           </span>
                         )}
                       </div>
-                      <span className="max-w-[160px] truncate font-mono-code text-[10px] text-[var(--text-tertiary)]">
+                      <span className="max-w-[160px] truncate font-mono-code text-[0.6875rem] text-[var(--text-tertiary)]">
                         {req.url}
                       </span>
                     </Command.Item>
@@ -296,7 +296,7 @@ export function CommandPalette({
               >
                 <span>No Environment</span>
                 {!activeEnvId && (
-                  <span className="font-mono-code text-[10px] text-[var(--accent)]">Active</span>
+                  <span className="font-mono-code text-[0.6875rem] text-[var(--accent)]">Active</span>
                 )}
               </Command.Item>
               {customEnvs.map((env) => (
@@ -313,7 +313,7 @@ export function CommandPalette({
                     <span>{env.name}</span>
                   </div>
                   {activeEnvId === env.id && (
-                    <span className="font-mono-code text-[10px] text-[var(--accent)]">
+                    <span className="font-mono-code text-[0.6875rem] text-[var(--accent)]">
                       Active
                     </span>
                   )}

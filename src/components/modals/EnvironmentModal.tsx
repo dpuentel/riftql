@@ -353,7 +353,7 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
               <div className="min-h-0 flex-1 overflow-auto rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] rift-scroll">
                 <table className="w-full border-collapse text-left text-xs">
                   <thead>
-                    <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/60 text-[11px] text-[var(--text-secondary)]">
+                    <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/60 text-[0.75rem] text-[var(--text-secondary)]">
                       <th className="w-8 px-2 py-1 text-center">On</th>
                       <th className="px-2 py-1">Variable</th>
                       <th className="px-2 py-1">Value</th>
@@ -515,7 +515,7 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
                 </Button>
 
                 {statusMsg && (
-                  <span className="truncate text-[11px] text-[var(--accent)]" title={statusMsg}>
+                  <span className="truncate text-[0.75rem] text-[var(--accent)]" title={statusMsg}>
                     {statusMsg}
                   </span>
                 )}

@@ -343,6 +343,14 @@ pub struct SessionTabRecord {
     pub updated_at: String,
 }
 
+fn default_ui_font_size() -> u16 {
+    16
+}
+
+fn default_code_font_size() -> u16 {
+    13
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
@@ -357,6 +365,10 @@ pub struct AppSettings {
     pub active_environment_id: Option<String>,
     #[serde(default)]
     pub custom_shortcuts: HashMap<String, String>,
+    #[serde(default = "default_ui_font_size")]
+    pub ui_font_size: u16,
+    #[serde(default = "default_code_font_size")]
+    pub code_font_size: u16,
 }
 
 impl Default for AppSettings {
@@ -371,6 +383,8 @@ impl Default for AppSettings {
             send_cookies: true,
             active_environment_id: None,
             custom_shortcuts: HashMap::new(),
+            ui_font_size: default_ui_font_size(),
+            code_font_size: default_code_font_size(),
         }
     }
 }

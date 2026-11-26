@@ -125,7 +125,7 @@ export function SaveRequestModal({
 
         <form onSubmit={(e) => void handleSave(e)} className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-medium text-[var(--text-secondary)]">
+            <label className="text-[0.75rem] font-medium text-[var(--text-secondary)]">
               Request Name
             </label>
             <Input
@@ -137,7 +137,7 @@ export function SaveRequestModal({
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-medium text-[var(--text-secondary)]">
+            <label className="text-[0.75rem] font-medium text-[var(--text-secondary)]">
               Collection
             </label>
             {collections.length > 0 && (
@@ -181,7 +181,7 @@ export function SaveRequestModal({
 
           {folderOptions.length > 0 && (
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-medium text-[var(--text-secondary)]">
+              <label className="text-[0.75rem] font-medium text-[var(--text-secondary)]">
                 Folder (Optional)
               </label>
               <Select value={folderId} onValueChange={setFolderId}>

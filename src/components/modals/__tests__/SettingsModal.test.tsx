@@ -109,4 +109,22 @@ describe('SettingsModal', () => {
     expect(String(writeCall?.args?.content)).not.toContain('raw-secret');
     expect(screen.getByText(/exported workspace json to \/tmp\/riftql-workspace\.json/i)).toBeInTheDocument();
   });
+
+  it('updates UI and code editor font sizes and syncs CSS custom properties', async () => {
+    const user = userEvent.setup();
+    render(
+      <TooltipProvider>
+        <SettingsModal open onOpenChange={() => {}} />
+      </TooltipProvider>,
+    );
+
+    await user.click(screen.getByRole('button', { name: /large \(20px\)/i }));
+    expect(useSettingsStore.getState().settings.uiFontSize).toBe(20);
+    expect(document.documentElement.style.getPropertyValue('--rift-ui-font-size')).toBe('20px');
+
+    await user.click(screen.getByRole('button', { name: /increase code font size/i }));
+    await user.click(screen.getByRole('button', { name: /increase code font size/i }));
+    expect(useSettingsStore.getState().settings.codeFontSize).toBe(15);
+    expect(document.documentElement.style.getPropertyValue('--rift-code-font-size')).toBe('15px');
+  });
 });

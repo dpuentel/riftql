@@ -154,7 +154,7 @@ export function AppShell(props: AppShellModalSlots = {}) {
           >
             <SelectTrigger
               aria-label="Active environment"
-              className="h-7 w-36 text-[11px]"
+              className="h-7 w-36 text-[0.75rem]"
             >
               <Globe className="h-3 w-3 shrink-0 text-[var(--accent)]" />
               <SelectValue placeholder="No Environment" />

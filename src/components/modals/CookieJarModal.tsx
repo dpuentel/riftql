@@ -81,7 +81,7 @@ export function CookieJarModal({ open, onOpenChange }: CookieJarModalProps) {
             <span className="text-xs font-medium text-[var(--text-primary)]">
               Automatically send &amp; store cookies by domain
             </span>
-            <span className="text-[11px] text-[var(--text-secondary)]">
+            <span className="text-[0.75rem] text-[var(--text-secondary)]">
               Disable to stop RiftQL from sending stored jar cookies (can also be overridden per
               request).
             </span>
@@ -128,7 +128,7 @@ export function CookieJarModal({ open, onOpenChange }: CookieJarModalProps) {
         <div className="h-52 overflow-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] rift-scroll">
           <table className="w-full border-collapse text-left text-xs">
             <thead>
-              <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/60 text-[11px] text-[var(--text-secondary)]">
+              <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/60 text-[0.75rem] text-[var(--text-secondary)]">
                 <th className="px-2.5 py-1.5">Domain</th>
                 <th className="px-2.5 py-1.5">Name</th>
                 <th className="px-2.5 py-1.5">Value</th>

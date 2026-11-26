@@ -120,7 +120,7 @@ export function AuthEditor({
 
       {auth.type === 'bearer' && (
         <div className="flex flex-col gap-1.5">
-          <label className="text-[11px] font-medium text-[var(--text-secondary)]">
+          <label className="text-[0.75rem] font-medium text-[var(--text-secondary)]">
             Token
           </label>
           <Input
@@ -135,7 +135,7 @@ export function AuthEditor({
       {auth.type === 'basic' && (
         <div className="grid grid-cols-2 gap-2.5">
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-medium text-[var(--text-secondary)]">
+            <label className="text-[0.75rem] font-medium text-[var(--text-secondary)]">
               Username
             </label>
             <Input
@@ -148,7 +148,7 @@ export function AuthEditor({
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-medium text-[var(--text-secondary)]">
+            <label className="text-[0.75rem] font-medium text-[var(--text-secondary)]">
               Password
             </label>
             <Input
@@ -167,7 +167,7 @@ export function AuthEditor({
       {auth.type === 'apiKey' && (
         <div className="grid grid-cols-3 gap-2.5">
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-medium text-[var(--text-secondary)]">
+            <label className="text-[0.75rem] font-medium text-[var(--text-secondary)]">
               Key
             </label>
             <Input
@@ -178,7 +178,7 @@ export function AuthEditor({
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-medium text-[var(--text-secondary)]">
+            <label className="text-[0.75rem] font-medium text-[var(--text-secondary)]">
               Value
             </label>
             <Input
@@ -189,7 +189,7 @@ export function AuthEditor({
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-medium text-[var(--text-secondary)]">
+            <label className="text-[0.75rem] font-medium text-[var(--text-secondary)]">
               Add To
             </label>
             <Select

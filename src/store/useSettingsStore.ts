@@ -5,6 +5,11 @@ import { formatShortcutForDisplay, getEffectiveShortcuts } from '@/lib/shortcuts
 import type { ShortcutActionId } from '@/types/shortcuts';
 import type { AppSettings, SplitLayout, ThemePreference } from '@/types/storage';
 
+export const MIN_UI_FONT_SIZE = 13;
+export const MAX_UI_FONT_SIZE = 22;
+export const MIN_CODE_FONT_SIZE = 11;
+export const MAX_CODE_FONT_SIZE = 22;
+
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
   layout: 'horizontal',
@@ -15,7 +20,39 @@ export const DEFAULT_SETTINGS: AppSettings = {
   sendCookies: true,
   activeEnvironmentId: undefined,
   customShortcuts: {},
+  uiFontSize: 16,
+  codeFontSize: 13,
 };
+
+export function clampUiFontSize(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_SETTINGS.uiFontSize;
+  return Math.min(MAX_UI_FONT_SIZE, Math.max(MIN_UI_FONT_SIZE, Math.round(value)));
+}
+
+export function clampCodeFontSize(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_SETTINGS.codeFontSize;
+  return Math.min(MAX_CODE_FONT_SIZE, Math.max(MIN_CODE_FONT_SIZE, Math.round(value)));
+}
+
+export function applyTypographyToDocument(uiFontSize: number, codeFontSize: number): void {
+  const ui = clampUiFontSize(uiFontSize);
+  const code = clampCodeFontSize(codeFontSize);
+
+  if (typeof document !== 'undefined') {
+    const root = document.documentElement;
+    root.style.setProperty('--rift-ui-font-size', `${ui}px`);
+    root.style.setProperty('--rift-code-font-size', `${code}px`);
+  }
+
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem('riftql-ui-font-size', String(ui));
+      localStorage.setItem('riftql-code-font-size', String(code));
+    } catch {
+      // ignore storage errors
+    }
+  }
+}
 
 let mediaListenerCleanup: (() => void) | null = null;
 
@@ -86,6 +123,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
   };
 
   syncShortcutBridge(DEFAULT_SETTINGS.customShortcuts);
+  applyTypographyToDocument(DEFAULT_SETTINGS.uiFontSize, DEFAULT_SETTINGS.codeFontSize);
 
   const attachSystemMediaListener = (pref: ThemePreference) => {
     if (mediaListenerCleanup) {
@@ -124,21 +162,28 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
       const merged: AppSettings = {
         ...DEFAULT_SETTINGS,
         ...loaded,
+        uiFontSize: clampUiFontSize(loaded.uiFontSize ?? DEFAULT_SETTINGS.uiFontSize),
+        codeFontSize: clampCodeFontSize(loaded.codeFontSize ?? DEFAULT_SETTINGS.codeFontSize),
         customShortcuts: loaded.customShortcuts ?? {},
       };
       const resolved = applyThemeToDocument(merged.theme);
+      applyTypographyToDocument(merged.uiFontSize, merged.codeFontSize);
       attachSystemMediaListener(merged.theme);
       syncShortcutBridge(merged.customShortcuts);
       set({ settings: merged, resolvedTheme: resolved, isLoaded: true });
     },
 
     updateSettings: async (patch) => {
+      const prev = get().settings;
       const next: AppSettings = {
-        ...get().settings,
+        ...prev,
         ...patch,
-        customShortcuts: patch.customShortcuts ?? get().settings.customShortcuts,
+        uiFontSize: clampUiFontSize(patch.uiFontSize ?? prev.uiFontSize),
+        codeFontSize: clampCodeFontSize(patch.codeFontSize ?? prev.codeFontSize),
+        customShortcuts: patch.customShortcuts ?? prev.customShortcuts,
       };
       const resolved = applyThemeToDocument(next.theme);
+      applyTypographyToDocument(next.uiFontSize, next.codeFontSize);
       attachSystemMediaListener(next.theme);
       syncShortcutBridge(next.customShortcuts);
       set({ settings: next, resolvedTheme: resolved });

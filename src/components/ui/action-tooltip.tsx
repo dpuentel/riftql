@@ -44,7 +44,7 @@ export function ActionTooltip({
       <TooltipContent side={side}>
         <span>{label}</span>
         {resolvedShortcut && (
-          <kbd className="rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-1 py-0.5 font-mono-code text-[10px] leading-none text-[var(--text-secondary)]">
+          <kbd className="rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-1 py-0.5 font-mono-code text-[0.6875rem] leading-none text-[var(--text-secondary)]">
             {resolvedShortcut}
           </kbd>
         )}

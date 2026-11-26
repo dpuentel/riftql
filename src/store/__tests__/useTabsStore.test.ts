@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setTauriBridgeAdapter } from '@/lib/tauri';
-import { useSettingsStore } from '@/store/useSettingsStore';
+import { DEFAULT_SETTINGS, useSettingsStore } from '@/store/useSettingsStore';
 import { useTabsStore } from '@/store/useTabsStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import type { HttpExecutionRequest, HttpExecutionResponse } from '@/types/api';
@@ -54,15 +54,8 @@ describe('useTabsStore', () => {
 
     useSettingsStore.setState({
       settings: {
-        theme: 'dark',
-        layout: 'horizontal',
-        verifySsl: true,
-        followRedirects: true,
-        maxRedirects: 10,
-        timeoutMs: 30_000,
-        sendCookies: true,
+        ...DEFAULT_SETTINGS,
         activeEnvironmentId: 'e1',
-        customShortcuts: {},
       },
       resolvedTheme: 'dark',
       isLoaded: true,

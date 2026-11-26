@@ -401,9 +401,30 @@ fn workspace_export_strips_secrets_and_roundtrips_cleanly() {
 
         let mut settings = AppSettings::default();
         settings.send_cookies = false;
+        settings.ui_font_size = 18;
+        settings.code_font_size = 15;
         save_app_settings(conn, &settings)?;
-        assert!(!get_app_settings(conn)?.send_cookies);
+        let loaded = get_app_settings(conn)?;
+        assert!(!loaded.send_cookies);
+        assert_eq!(loaded.ui_font_size, 18);
+        assert_eq!(loaded.code_font_size, 15);
         Ok(())
     })
     .unwrap();
+}
+
+#[test]
+fn app_settings_deserializes_legacy_json_with_default_font_sizes() {
+    let legacy_json = r#"{
+        "theme": "dark",
+        "layout": "horizontal",
+        "verifySsl": true,
+        "followRedirects": true,
+        "maxRedirects": 10,
+        "timeoutMs": 30000,
+        "sendCookies": true
+    }"#;
+    let parsed: AppSettings = serde_json::from_str(legacy_json).expect("legacy settings json");
+    assert_eq!(parsed.ui_font_size, 16);
+    assert_eq!(parsed.code_font_size, 13);
 }

@@ -34,7 +34,7 @@ export function ResponseBodyViewer({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Badge variant="accent">{mime}</Badge>
-            <span className="font-mono-code text-[11px] text-[var(--text-secondary)] tabular-nums">
+            <span className="font-mono-code text-[0.75rem] text-[var(--text-secondary)] tabular-nums">
               {formatBytes(response.sizeBytes)}
             </span>
           </div>
@@ -64,7 +64,7 @@ export function ResponseBodyViewer({
             <span className="text-xs font-semibold text-[var(--text-primary)]">
               Binary Response Payload
             </span>
-            <span className="font-mono-code text-[11px] text-[var(--text-secondary)] tabular-nums">
+            <span className="font-mono-code text-[0.75rem] text-[var(--text-secondary)] tabular-nums">
               {mime} • {formatBytes(response.sizeBytes)}
             </span>
           </div>
@@ -118,7 +118,7 @@ export function ResponseBodyViewer({
             type="button"
             onClick={() => setViewMode('pretty')}
             className={cn(
-              'cursor-pointer rounded px-2 py-0.5 text-[11px] font-medium transition-colors',
+              'cursor-pointer rounded px-2 py-0.5 text-[0.75rem] font-medium transition-colors',
               viewMode === 'pretty'
                 ? 'bg-[var(--accent-muted)] text-[var(--accent)]'
                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
@@ -130,7 +130,7 @@ export function ResponseBodyViewer({
             type="button"
             onClick={() => setViewMode('raw')}
             className={cn(
-              'cursor-pointer rounded px-2 py-0.5 text-[11px] font-medium transition-colors',
+              'cursor-pointer rounded px-2 py-0.5 text-[0.75rem] font-medium transition-colors',
               viewMode === 'raw'
                 ? 'bg-[var(--accent-muted)] text-[var(--accent)]'
                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
