@@ -33,3 +33,11 @@ Welcome to the **RiftQL** documentation. RiftQL is a local-first desktop API cli
    - Switch active environments from the top bar or `Ctrl/Cmd+K` (`Ctrl/Cmd+E` to edit variables and copy keys across all environments).
 5. **Sync via Git (Optional)**
    - Open **Settings → Git Sync** to mirror your workspace into deterministic, Git-diffable JSON files with optional **Auto-Commit & Push** and **Auto-Fetch** notifications while keeping secret values local.
+
+---
+
+## Contributor & Agent Guidelines
+
+- [AGENTS.md](../AGENTS.md) — Architecture, security invariants, CodeMirror/Tauri rules, testing conventions & verification commands
+- [DESIGN.md](../DESIGN.md) — CSS theme tokens, HTTP/GraphQL semantic colors, typography scaling, layout metrics & UI primitive specs
+- [BRANDING.md](../BRANDING.md) — Brand narrative, logo rationale & voice guidelines

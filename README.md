@@ -61,7 +61,9 @@ For full contributor setup, GitHub Actions workflows, and the automated `pnpm re
 
 ---
 
-## Project Tracking & Branding
+## Project Tracking, Guidelines & Branding
 
-- Ticket board & v2 backlog: [tickets/README.md](./tickets/README.md)
+- AI agent engineering guidelines: [AGENTS.md](./AGENTS.md)
+- Design system, tokens & UI specs: [DESIGN.md](./DESIGN.md)
 - Visual & voice identity guide: [BRANDING.md](./BRANDING.md)
+- Ticket board & v2 backlog: [tickets/README.md](./tickets/README.md)
