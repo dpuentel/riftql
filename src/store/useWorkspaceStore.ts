@@ -67,6 +67,7 @@ interface WorkspaceState {
     draft: RequestDraft;
     sortOrder?: number;
   }) => Promise<SavedRequestRecord>;
+  renameSavedRequest: (id: string, name: string) => Promise<SavedRequestRecord | undefined>;
   deleteSavedRequest: (id: string) => Promise<void>;
 
   upsertEnvironment: (input: {
@@ -294,6 +295,32 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       };
     });
     return saved;
+  },
+
+  renameSavedRequest: async (id, name) => {
+    const existing = get().savedRequests.find((r) => r.id === id);
+    const trimmed = name.trim();
+    if (!existing || !trimmed) return existing;
+    const draft: RequestDraft = {
+      id: existing.id,
+      name: trimmed,
+      protocol: existing.protocol,
+      method: existing.method,
+      url: existing.url,
+      params: existing.params,
+      headers: existing.headers,
+      auth: existing.auth,
+      body: existing.body,
+      graphql: existing.graphql,
+      settings: existing.settings,
+    };
+    return get().upsertSavedRequest({
+      id: existing.id,
+      collectionId: existing.collectionId,
+      folderId: existing.folderId,
+      draft,
+      sortOrder: existing.sortOrder,
+    });
   },
 
   deleteSavedRequest: async (id) => {

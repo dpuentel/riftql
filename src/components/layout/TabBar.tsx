@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { Plus, X } from 'lucide-react';
 import { ActionTooltip } from '@/components/ui/action-tooltip';
 import {
@@ -7,9 +8,11 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import { Input } from '@/components/ui/input';
 import { getMethodColorClass } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useTabsStore } from '@/store/useTabsStore';
+import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 
 export function TabBar() {
   const tabs = useTabsStore((s) => s.tabs);
@@ -18,6 +21,39 @@ export function TabBar() {
   const closeTab = useTabsStore((s) => s.closeTab);
   const newTab = useTabsStore((s) => s.newTab);
   const duplicateTab = useTabsStore((s) => s.duplicateTab);
+  const renameTab = useTabsStore((s) => s.renameTab);
+  const syncSavedRequestRename = useTabsStore((s) => s.syncSavedRequestRename);
+  const renameSavedRequest = useWorkspaceStore((s) => s.renameSavedRequest);
+
+  const [renamingTabId, setRenamingTabId] = React.useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = React.useState('');
+  const skipBlurRef = React.useRef(false);
+
+  const startTabRename = (tabId: string, currentTitle: string) => {
+    skipBlurRef.current = false;
+    setRenamingTabId(tabId);
+    setRenameDraft(currentTitle);
+  };
+
+  const commitTabRename = async (tabId: string) => {
+    if (skipBlurRef.current) {
+      skipBlurRef.current = false;
+      return;
+    }
+    const target = tabs.find((t) => t.id === tabId);
+    const trimmed = renameDraft.trim();
+    setRenamingTabId(null);
+    setRenameDraft('');
+    if (!target || !trimmed) return;
+    if (target.savedRequestId && target.collectionId) {
+      const updated = await renameSavedRequest(target.savedRequestId, trimmed);
+      if (updated) {
+        syncSavedRequestRename(updated.id, updated.name);
+      }
+    } else {
+      renameTab(tabId, trimmed);
+    }
+  };
 
   const handleCloseOthers = (keepId: string) => {
     for (const t of tabs) {
@@ -71,13 +107,44 @@ export function TabBar() {
                 )}
                 <span
                   className={cn(
-                    'shrink-0 font-mono-code text-[10px] font-semibold tracking-tight',
+                    'shrink-0 font-mono-code text-[0.6875rem] font-semibold tracking-tight',
                     getMethodColorClass(badgeLabel),
                   )}
                 >
                   {badgeLabel}
                 </span>
-                <span className="truncate font-medium">{tab.title}</span>
+                {renamingTabId === tab.id ? (
+                  <Input
+                    autoFocus
+                    value={renameDraft}
+                    aria-label="Rename tab"
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => setRenameDraft(e.target.value)}
+                    onBlur={() => void commitTabRename(tab.id)}
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void commitTabRename(tab.id);
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        skipBlurRef.current = true;
+                        setRenamingTabId(null);
+                      }
+                    }}
+                    className="h-5 min-w-0 px-1 text-xs"
+                  />
+                ) : (
+                  <span
+                    className="truncate font-medium"
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      startTabRename(tab.id, tab.title);
+                    }}
+                  >
+                    {tab.title}
+                  </span>
+                )}
                 {tab.isLoading ? (
                   <span
                     aria-label="Sending"
@@ -112,6 +179,9 @@ export function TabBar() {
               </div>
             </ContextMenuTrigger>
             <ContextMenuContent>
+              <ContextMenuItem onSelect={() => startTabRename(tab.id, tab.title)}>
+                Rename Request
+              </ContextMenuItem>
               <ContextMenuItem onSelect={() => duplicateTab(tab.id)}>
                 Duplicate Tab
               </ContextMenuItem>

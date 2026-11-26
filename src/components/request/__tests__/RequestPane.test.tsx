@@ -5,6 +5,7 @@ import { TabBar } from '@/components/layout/TabBar';
 import { RequestPane } from '@/components/request/RequestPane';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { createEmptyDraft, useTabsStore } from '@/store/useTabsStore';
+import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 
 describe('RequestPane and TabBar', () => {
   beforeEach(() => {
@@ -79,5 +80,73 @@ describe('RequestPane and TabBar', () => {
     expect(screen.getByRole('button', { name: /fetch schema/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /docs/i })).toBeInTheDocument();
     expect(screen.getByLabelText('Operation')).toBeInTheDocument();
+  });
+
+  it('renames unsaved and saved requests inline from RequestPane header', async () => {
+    const user = userEvent.setup();
+    useWorkspaceStore.setState({
+      collections: [
+        {
+          id: 'col-1',
+          name: 'Billing',
+          description: '',
+          auth: { type: 'none' },
+          variables: [],
+          sortOrder: 0,
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
+      folders: [],
+      savedRequests: [
+        {
+          id: 'req-1',
+          collectionId: 'col-1',
+          name: 'Old Name',
+          protocol: 'rest',
+          method: 'GET',
+          url: 'https://api.test/invoices',
+          params: [],
+          headers: [],
+          auth: { type: 'inherit' },
+          body: { mode: 'none' },
+          graphql: { query: '', variables: '{}' },
+          settings: {},
+          sortOrder: 0,
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
+    });
+    useTabsStore.setState({
+      tabs: [
+        {
+          id: 'tab-saved',
+          savedRequestId: 'req-1',
+          collectionId: 'col-1',
+          title: 'Old Name',
+          isDirty: false,
+          draft: { ...createEmptyDraft('rest'), id: 'req-1', name: 'Old Name' },
+          isLoading: false,
+        },
+      ],
+      activeTabId: 'tab-saved',
+    });
+
+    render(
+      <TooltipProvider>
+        <TabBar />
+        <RequestPane />
+      </TooltipProvider>,
+    );
+
+    expect(screen.getByText('Billing /')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Rename request' }));
+    const input = screen.getByLabelText('Request name');
+    await user.clear(input);
+    await user.type(input, 'List Invoices{Enter}');
+
+    expect(useTabsStore.getState().tabs[0]?.title).toBe('List Invoices');
+    expect(useWorkspaceStore.getState().savedRequests[0]?.name).toBe('List Invoices');
   });
 });

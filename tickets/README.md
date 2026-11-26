@@ -20,6 +20,7 @@ Track MVP execution and post-MVP backlog items. Every ticket maps to atomic Git 
 | [T-012](./T-012-e2e-verification-and-polish.md) | End-to-end verification, Windows Tauri build, README & final polish | QA / Release | `DONE` |
 | [T-013](./T-013-github-actions-ci-and-release.md) | GitHub Actions CI tests & multi-platform Tauri binary releases | Infra / CI-CD | `DONE` |
 | [T-014](./T-014-env-selection-and-native-file-io.md) | Fix Environment selection reset & native Tauri file export/import | UI / Persistence | `DONE` |
+| [T-015](./T-015-folder-management-and-request-rename.md) | Collection folder actions, nested subfolders & inline request renaming | UI / Collections | `DONE` |
 
 ---
 

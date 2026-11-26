@@ -3,6 +3,7 @@ import {
   Braces,
   Code2,
   Import,
+  Pencil,
   Save,
   Send,
   Square,
@@ -67,6 +68,8 @@ export function RequestPane({
   const activeTabId = useTabsStore((s) => s.activeTabId);
   const tab = useTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId));
   const updateDraft = useTabsStore((s) => s.updateDraft);
+  const renameTab = useTabsStore((s) => s.renameTab);
+  const syncSavedRequestRename = useTabsStore((s) => s.syncSavedRequestRename);
   const sendTabRequest = useTabsStore((s) => s.sendTabRequest);
   const cancelTabRequest = useTabsStore((s) => s.cancelTabRequest);
   const markTabSaved = useTabsStore((s) => s.markTabSaved);
@@ -74,11 +77,17 @@ export function RequestPane({
   const settings = useSettingsStore((s) => s.settings);
   const environments = useWorkspaceStore((s) => s.environments);
   const collections = useWorkspaceStore((s) => s.collections);
+  const folders = useWorkspaceStore((s) => s.folders);
   const upsertSavedRequest = useWorkspaceStore((s) => s.upsertSavedRequest);
+  const renameSavedRequest = useWorkspaceStore((s) => s.renameSavedRequest);
 
   const [activeSubTab, setActiveSubTab] = React.useState<string>('params');
+  const [editingName, setEditingName] = React.useState(false);
+  const [nameDraft, setNameDraft] = React.useState('');
+  const skipNameBlurRef = React.useRef(false);
 
   React.useEffect(() => {
+    setEditingName(false);
     if (tab?.draft.protocol === 'graphql') {
       setActiveSubTab('graphql');
     } else if (activeSubTab === 'graphql') {
@@ -98,6 +107,51 @@ export function RequestPane({
   const collection = tab.collectionId
     ? collections.find((c) => c.id === tab.collectionId)
     : undefined;
+
+  const breadcrumbSegments: string[] = [];
+  if (collection) {
+    breadcrumbSegments.push(collection.name);
+    if (tab.folderId) {
+      const folderChain: string[] = [];
+      let curId: string | undefined = tab.folderId;
+      for (let i = 0; i < 8 && curId; i++) {
+        const f = folders.find((item) => item.id === curId);
+        if (!f) break;
+        folderChain.unshift(f.name);
+        curId = f.parentId;
+      }
+      breadcrumbSegments.push(...folderChain);
+    }
+  }
+
+  const startEditingName = () => {
+    skipNameBlurRef.current = false;
+    setNameDraft(tab.draft.name || tab.title);
+    setEditingName(true);
+  };
+
+  const cancelEditingName = () => {
+    skipNameBlurRef.current = true;
+    setEditingName(false);
+  };
+
+  const commitNameEdit = async () => {
+    if (skipNameBlurRef.current) {
+      skipNameBlurRef.current = false;
+      return;
+    }
+    const trimmed = nameDraft.trim();
+    setEditingName(false);
+    if (!trimmed) return;
+    if (tab.savedRequestId && tab.collectionId) {
+      const updated = await renameSavedRequest(tab.savedRequestId, trimmed);
+      if (updated) {
+        syncSavedRequestRename(updated.id, updated.name);
+      }
+    } else {
+      renameTab(tab.id, trimmed);
+    }
+  };
 
   const urlVars = findVariableMatches(draft.url, {
     globalEnvironment: globalEnv,
@@ -187,6 +241,45 @@ export function RequestPane({
     >
       {/* Top URL & Action Bar */}
       <div className="flex flex-col gap-1.5 border-b border-[var(--border-subtle)] px-3 py-2.5">
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 text-xs">
+            {breadcrumbSegments.length > 0 && (
+              <span className="truncate text-[0.75rem] text-[var(--text-secondary)]">
+                {breadcrumbSegments.join(' / ')} /
+              </span>
+            )}
+            {editingName ? (
+              <Input
+                autoFocus
+                value={nameDraft}
+                aria-label="Request name"
+                onChange={(e) => setNameDraft(e.target.value)}
+                onBlur={() => void commitNameEdit()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void commitNameEdit();
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    cancelEditingName();
+                  }
+                }}
+                className="h-6 max-w-xs px-1.5 text-xs font-medium"
+              />
+            ) : (
+              <button
+                type="button"
+                aria-label="Rename request"
+                onClick={startEditingName}
+                className="group inline-flex min-w-0 cursor-pointer items-center gap-1 rounded px-1 py-0.5 text-left font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+              >
+                <span className="truncate">{tab.title}</span>
+                <Pencil className="h-3 w-3 shrink-0 text-[var(--text-secondary)] opacity-0 transition-opacity group-hover:opacity-100" />
+              </button>
+            )}
+          </div>
+        </div>
+
         <div className="flex items-center gap-1.5">
           <Select value={selectorValue} onValueChange={handleMethodSelect}>
             <SelectTrigger

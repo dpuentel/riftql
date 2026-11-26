@@ -167,6 +167,9 @@ interface TabsState {
   openSavedRequest: (req: SavedRequestRecord) => void;
   openHistoryEntry: (entry: HistoryEntry) => void;
   updateDraft: (tabId: string, updater: (draft: RequestDraft) => RequestDraft) => void;
+  renameTab: (tabId: string, name: string) => void;
+  syncSavedRequestRename: (savedRequestId: string, name: string) => void;
+  detachDeletedSavedRequests: (deletedIds: Set<string>) => void;
   markTabSaved: (tabId: string, saved: SavedRequestRecord) => void;
   setTabResponse: (tabId: string, response: HttpExecutionResponse | undefined) => void;
   sendTabRequest: (tabId: string) => Promise<void>;
@@ -369,6 +372,60 @@ export const useTabsStore = create<TabsState>((set, get) => ({
         draft: nextDraft,
       };
     });
+    set({ tabs: nextTabs });
+    scheduleSessionPersist(nextTabs, get().activeTabId);
+  },
+
+  renameTab: (tabId, name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const nextTabs = get().tabs.map((tab) => {
+      if (tab.id !== tabId) return tab;
+      const nextDraft = { ...tab.draft, name: trimmed };
+      return {
+        ...tab,
+        title: trimmed,
+        isDirty: tab.savedRequestId ? tab.isDirty : true,
+        draft: nextDraft,
+      };
+    });
+    set({ tabs: nextTabs });
+    scheduleSessionPersist(nextTabs, get().activeTabId);
+  },
+
+  syncSavedRequestRename: (savedRequestId, name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    let changed = false;
+    const nextTabs = get().tabs.map((tab) => {
+      if (tab.savedRequestId !== savedRequestId) return tab;
+      changed = true;
+      return {
+        ...tab,
+        title: trimmed,
+        draft: { ...tab.draft, name: trimmed },
+      };
+    });
+    if (!changed) return;
+    set({ tabs: nextTabs });
+    scheduleSessionPersist(nextTabs, get().activeTabId);
+  },
+
+  detachDeletedSavedRequests: (deletedIds) => {
+    if (deletedIds.size === 0) return;
+    let changed = false;
+    const nextTabs = get().tabs.map((tab) => {
+      if (!tab.savedRequestId || !deletedIds.has(tab.savedRequestId)) return tab;
+      changed = true;
+      return {
+        ...tab,
+        savedRequestId: undefined,
+        collectionId: undefined,
+        folderId: undefined,
+        isDirty: true,
+      };
+    });
+    if (!changed) return;
     set({ tabs: nextTabs });
     scheduleSessionPersist(nextTabs, get().activeTabId);
   },

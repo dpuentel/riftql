@@ -1,5 +1,6 @@
 import * as React from 'react';
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   Cookie,
@@ -8,12 +9,13 @@ import {
   Globe,
   History,
   Layers,
-  MoreHorizontal,
+  Pencil,
   Plus,
   Search,
   Settings,
   SlidersHorizontal,
   Trash2,
+  X,
 } from 'lucide-react';
 import { ActionTooltip } from '@/components/ui/action-tooltip';
 import { Badge } from '@/components/ui/badge';
@@ -46,9 +48,15 @@ interface SidebarProps {
   onEditCollection: (collection: CollectionRecord) => void;
   onEditFolder: (folder: FolderRecord) => void;
   createCollectionTrigger?: number;
+  width?: number;
 }
 
 type SidebarView = 'collections' | 'history' | 'environments';
+
+type RenameTarget = {
+  kind: 'collection' | 'folder' | 'request';
+  id: string;
+};
 
 function groupHistoryByDay(entries: HistoryEntry[]): Array<{ label: string; items: HistoryEntry[] }> {
   const now = new Date();
@@ -73,6 +81,9 @@ function groupHistoryByDay(entries: HistoryEntry[]): Array<{ label: string; item
   ].filter((g) => g.items.length > 0);
 }
 
+const HOVER_ACTION_TRAY =
+  'flex w-0 shrink-0 items-center overflow-hidden opacity-0 pointer-events-none group-hover:w-auto group-hover:overflow-visible group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:w-auto group-focus-within:overflow-visible group-focus-within:opacity-100 group-focus-within:pointer-events-auto';
+
 export function Sidebar({
   onOpenEnvironments,
   onOpenCookies,
@@ -80,12 +91,17 @@ export function Sidebar({
   onEditCollection,
   onEditFolder,
   createCollectionTrigger,
+  width,
 }: SidebarProps) {
   const [view, setView] = React.useState<SidebarView>('collections');
   const [search, setSearch] = React.useState('');
   const [expandedIds, setExpandedIds] = React.useState<Set<string>>(new Set());
   const [creatingCollection, setCreatingCollection] = React.useState(false);
   const [newCollectionName, setNewCollectionName] = React.useState('');
+  const [renamingItem, setRenamingItem] = React.useState<RenameTarget | null>(null);
+  const [renameDraft, setRenameDraft] = React.useState('');
+  const [confirmDelete, setConfirmDelete] = React.useState<RenameTarget | null>(null);
+  const skipRenameBlurRef = React.useRef(false);
 
   const collections = useWorkspaceStore((s) => s.collections);
   const folders = useWorkspaceStore((s) => s.folders);
@@ -99,11 +115,14 @@ export function Sidebar({
   const upsertFolder = useWorkspaceStore((s) => s.upsertFolder);
   const deleteFolder = useWorkspaceStore((s) => s.deleteFolder);
   const upsertSavedRequest = useWorkspaceStore((s) => s.upsertSavedRequest);
+  const renameSavedRequest = useWorkspaceStore((s) => s.renameSavedRequest);
   const deleteSavedRequest = useWorkspaceStore((s) => s.deleteSavedRequest);
   const clearHistory = useWorkspaceStore((s) => s.clearHistory);
 
   const openSavedRequest = useTabsStore((s) => s.openSavedRequest);
   const openHistoryEntry = useTabsStore((s) => s.openHistoryEntry);
+  const syncSavedRequestRename = useTabsStore((s) => s.syncSavedRequestRename);
+  const detachDeletedSavedRequests = useTabsStore((s) => s.detachDeletedSavedRequests);
   const activeSavedRequestId = useTabsStore(
     (s) => s.tabs.find((t) => t.id === s.activeTabId)?.savedRequestId,
   );
@@ -125,6 +144,108 @@ export function Sidebar({
       else next.add(id);
       return next;
     });
+  };
+
+  const startRename = (kind: RenameTarget['kind'], id: string, currentName: string) => {
+    skipRenameBlurRef.current = false;
+    setConfirmDelete(null);
+    setRenamingItem({ kind, id });
+    setRenameDraft(currentName);
+  };
+
+  const cancelRename = () => {
+    skipRenameBlurRef.current = true;
+    setRenamingItem(null);
+    setRenameDraft('');
+  };
+
+  const commitRename = async () => {
+    if (skipRenameBlurRef.current) {
+      skipRenameBlurRef.current = false;
+      return;
+    }
+    const target = renamingItem;
+    const trimmed = renameDraft.trim();
+    setRenamingItem(null);
+    setRenameDraft('');
+    if (!target || !trimmed) return;
+
+    if (target.kind === 'collection') {
+      const col = collections.find((c) => c.id === target.id);
+      if (col && col.name !== trimmed) {
+        await upsertCollection({
+          id: col.id,
+          name: trimmed,
+          description: col.description,
+          auth: col.auth,
+          variables: col.variables,
+          sortOrder: col.sortOrder,
+        });
+      }
+      return;
+    }
+
+    if (target.kind === 'folder') {
+      const folder = folders.find((f) => f.id === target.id);
+      if (folder && folder.name !== trimmed) {
+        await upsertFolder({
+          id: folder.id,
+          collectionId: folder.collectionId,
+          parentId: folder.parentId,
+          name: trimmed,
+          auth: folder.auth,
+          sortOrder: folder.sortOrder,
+        });
+      }
+      return;
+    }
+
+    if (target.kind === 'request') {
+      const req = savedRequests.find((r) => r.id === target.id);
+      if (req && req.name !== trimmed) {
+        const updated = await renameSavedRequest(req.id, trimmed);
+        if (updated) {
+          syncSavedRequestRename(updated.id, updated.name);
+        }
+      }
+    }
+  };
+
+  const handleDeleteCollection = async (collectionId: string) => {
+    const affectedRequestIds = new Set(
+      savedRequests.filter((r) => r.collectionId === collectionId).map((r) => r.id),
+    );
+    setConfirmDelete(null);
+    await deleteCollection(collectionId);
+    detachDeletedSavedRequests(affectedRequestIds);
+  };
+
+  const handleDeleteFolder = async (folderId: string) => {
+    const toRemove = new Set<string>([folderId]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const f of folders) {
+        if (f.parentId && toRemove.has(f.parentId) && !toRemove.has(f.id)) {
+          toRemove.add(f.id);
+          changed = true;
+        }
+      }
+    }
+    const affectedRequestIds = new Set(
+      savedRequests
+        .filter((r) => r.folderId && toRemove.has(r.folderId))
+        .map((r) => r.id),
+    );
+    setConfirmDelete(null);
+    await deleteFolder(folderId);
+    detachDeletedSavedRequests(affectedRequestIds);
+  };
+
+  const handleDeleteRequest = async (requestId: string) => {
+    setConfirmDelete(null);
+    await deleteSavedRequest(requestId);
+    detachDeletedSavedRequests(new Set([requestId]));
   };
 
   const handleCreateCollection = async (e: React.FormEvent) => {
@@ -150,6 +271,7 @@ export function Sidebar({
       next.add(folder.id);
       return next;
     });
+    startRename('folder', folder.id, folder.name);
   };
 
   const handleAddRequest = async (collectionId: string, folderId?: string) => {
@@ -191,6 +313,11 @@ export function Sidebar({
       <>
         {childFolders.map((folder) => {
           const isOpen = expandedIds.has(folder.id) || q.length > 0;
+          const isRenaming =
+            renamingItem?.kind === 'folder' && renamingItem.id === folder.id;
+          const isConfirmingDelete =
+            confirmDelete?.kind === 'folder' && confirmDelete.id === folder.id;
+
           return (
             <div key={folder.id}>
               <ContextMenu>
@@ -199,41 +326,134 @@ export function Sidebar({
                     style={{ paddingLeft: `${depth * 12}px` }}
                     className="group flex items-center gap-1 rounded px-1.5 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
                   >
-                    <button
-                      type="button"
-                      onClick={() => toggleExpand(folder.id)}
-                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left"
-                    >
-                      {isOpen ? (
-                        <ChevronDown className="h-3 w-3 shrink-0" />
-                      ) : (
-                        <ChevronRight className="h-3 w-3 shrink-0" />
-                      )}
-                      <Folder className="h-3.5 w-3.5 shrink-0 text-[var(--text-secondary)]" />
-                      <span className="truncate font-medium text-[var(--text-primary)]">
-                        {folder.name}
-                      </span>
-                    </button>
-                    <ActionTooltip label="Add Request">
-                      <button
-                        type="button"
-                        aria-label={`Add request to ${folder.name}`}
-                        onClick={() => void handleAddRequest(collectionId, folder.id)}
-                        className="hidden h-5 w-5 items-center justify-center rounded group-hover:inline-flex hover:bg-[var(--bg-elevated)]"
-                      >
-                        <Plus className="h-3 w-3" />
-                      </button>
-                    </ActionTooltip>
-                    <ActionTooltip label="Folder Settings">
-                      <button
-                        type="button"
-                        aria-label={`Settings for ${folder.name}`}
-                        onClick={() => onEditFolder(folder)}
-                        className="hidden h-5 w-5 items-center justify-center rounded group-hover:inline-flex hover:bg-[var(--bg-elevated)]"
-                      >
-                        <MoreHorizontal className="h-3 w-3" />
-                      </button>
-                    </ActionTooltip>
+                    {isRenaming ? (
+                      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                        <Folder className="h-3.5 w-3.5 shrink-0 text-[var(--accent)]" />
+                        <Input
+                          autoFocus
+                          value={renameDraft}
+                          aria-label="Rename folder"
+                          onChange={(e) => setRenameDraft(e.target.value)}
+                          onBlur={() => void commitRename()}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              void commitRename();
+                            } else if (e.key === 'Escape') {
+                              e.preventDefault();
+                              cancelRename();
+                            }
+                          }}
+                          className="h-6 px-1.5 text-xs"
+                        />
+                      </div>
+                    ) : isConfirmingDelete ? (
+                      <div className="flex min-w-0 flex-1 items-center justify-between gap-1">
+                        <span className="truncate text-[0.75rem] font-medium text-[#F87171]">
+                          Delete &ldquo;{folder.name}&rdquo;?
+                        </span>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <ActionTooltip label="Confirm Delete Folder">
+                            <button
+                              type="button"
+                              aria-label={`Confirm delete ${folder.name}`}
+                              onClick={() => void handleDeleteFolder(folder.id)}
+                              className="inline-flex h-5 items-center gap-0.5 rounded bg-[#DC2626]/20 px-1.5 text-[0.6875rem] font-medium text-[#DC2626] hover:bg-[#DC2626]/30 dark:text-[#F87171]"
+                            >
+                              <Check className="h-3 w-3" />
+                              <span>Delete</span>
+                            </button>
+                          </ActionTooltip>
+                          <ActionTooltip label="Cancel Delete">
+                            <button
+                              type="button"
+                              aria-label="Cancel delete"
+                              onClick={() => setConfirmDelete(null)}
+                              className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </ActionTooltip>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => toggleExpand(folder.id)}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            startRename('folder', folder.id, folder.name);
+                          }}
+                          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left"
+                        >
+                          {isOpen ? (
+                            <ChevronDown className="h-3 w-3 shrink-0" />
+                          ) : (
+                            <ChevronRight className="h-3 w-3 shrink-0" />
+                          )}
+                          <Folder className="h-3.5 w-3.5 shrink-0 text-[var(--text-secondary)]" />
+                          <span className="truncate font-medium text-[var(--text-primary)]">
+                            {folder.name}
+                          </span>
+                        </button>
+                        <div className={HOVER_ACTION_TRAY}>
+                          <ActionTooltip label="New Request">
+                            <button
+                              type="button"
+                              aria-label={`Add request to ${folder.name}`}
+                              onClick={() => void handleAddRequest(collectionId, folder.id)}
+                              className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
+                            >
+                              <Plus className="h-3 w-3" />
+                            </button>
+                          </ActionTooltip>
+                          <ActionTooltip label="New Subfolder">
+                            <button
+                              type="button"
+                              aria-label={`New subfolder in ${folder.name}`}
+                              onClick={() => void handleAddFolder(collectionId, folder.id)}
+                              className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
+                            >
+                              <FolderPlus className="h-3 w-3" />
+                            </button>
+                          </ActionTooltip>
+                          <ActionTooltip label="Rename Folder">
+                            <button
+                              type="button"
+                              aria-label={`Rename ${folder.name}`}
+                              onClick={() => startRename('folder', folder.id, folder.name)}
+                              className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                          </ActionTooltip>
+                          <ActionTooltip label="Folder Settings">
+                            <button
+                              type="button"
+                              aria-label={`Settings for ${folder.name}`}
+                              onClick={() => onEditFolder(folder)}
+                              className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
+                            >
+                              <SlidersHorizontal className="h-3 w-3" />
+                            </button>
+                          </ActionTooltip>
+                          <ActionTooltip label="Delete Folder">
+                            <button
+                              type="button"
+                              aria-label={`Delete ${folder.name}`}
+                              onClick={() => {
+                                setRenamingItem(null);
+                                setConfirmDelete({ kind: 'folder', id: folder.id });
+                              }}
+                              className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] hover:text-[#F87171]"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </ActionTooltip>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </ContextMenuTrigger>
                 <ContextMenuContent>
@@ -243,12 +463,15 @@ export function Sidebar({
                   <ContextMenuItem onSelect={() => void handleAddFolder(collectionId, folder.id)}>
                     New Subfolder
                   </ContextMenuItem>
+                  <ContextMenuItem onSelect={() => startRename('folder', folder.id, folder.name)}>
+                    Rename Folder
+                  </ContextMenuItem>
                   <ContextMenuItem onSelect={() => onEditFolder(folder)}>
                     Folder Settings / Auth
                   </ContextMenuItem>
                   <ContextMenuSeparator />
                   <ContextMenuItem
-                    onSelect={() => void deleteFolder(folder.id)}
+                    onSelect={() => void handleDeleteFolder(folder.id)}
                     className="text-[#F87171]"
                   >
                     Delete Folder
@@ -264,6 +487,9 @@ export function Sidebar({
         {childRequests.map((req) => {
           const badge = req.protocol === 'graphql' ? 'GQL' : req.method;
           const isSelected = activeSavedRequestId === req.id;
+          const isRenaming =
+            renamingItem?.kind === 'request' && renamingItem.id === req.id;
+
           return (
             <ContextMenu key={req.id}>
               <ContextMenuTrigger asChild>
@@ -276,38 +502,89 @@ export function Sidebar({
                       : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
                   )}
                 >
-                  <button
-                    type="button"
-                    onClick={() => openSavedRequest(req)}
-                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left"
-                  >
-                    <span
-                      className={cn(
-                        'w-9 shrink-0 font-mono-code text-[10px] font-semibold',
-                        getMethodColorClass(badge),
-                      )}
-                    >
-                      {badge}
-                    </span>
-                    <span className="truncate">{req.name}</span>
-                  </button>
-                  <ActionTooltip label="Delete Request">
-                    <button
-                      type="button"
-                      aria-label={`Delete ${req.name}`}
-                      onClick={() => void deleteSavedRequest(req.id)}
-                      className="hidden h-5 w-5 items-center justify-center rounded group-hover:inline-flex hover:text-[#F87171]"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </ActionTooltip>
+                  {isRenaming ? (
+                    <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                      <span
+                        className={cn(
+                          'w-9 shrink-0 font-mono-code text-[0.6875rem] font-semibold',
+                          getMethodColorClass(badge),
+                        )}
+                      >
+                        {badge}
+                      </span>
+                      <Input
+                        autoFocus
+                        value={renameDraft}
+                        aria-label="Rename request"
+                        onChange={(e) => setRenameDraft(e.target.value)}
+                        onBlur={() => void commitRename()}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            void commitRename();
+                          } else if (e.key === 'Escape') {
+                            e.preventDefault();
+                            cancelRename();
+                          }
+                        }}
+                        className="h-6 px-1.5 text-xs"
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => openSavedRequest(req)}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          startRename('request', req.id, req.name);
+                        }}
+                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left"
+                      >
+                        <span
+                          className={cn(
+                            'w-9 shrink-0 font-mono-code text-[0.6875rem] font-semibold',
+                            getMethodColorClass(badge),
+                          )}
+                        >
+                          {badge}
+                        </span>
+                        <span className="truncate">{req.name}</span>
+                      </button>
+                      <div className={HOVER_ACTION_TRAY}>
+                        <ActionTooltip label="Rename Request">
+                          <button
+                            type="button"
+                            aria-label={`Rename ${req.name}`}
+                            onClick={() => startRename('request', req.id, req.name)}
+                            className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                        </ActionTooltip>
+                        <ActionTooltip label="Delete Request">
+                          <button
+                            type="button"
+                            aria-label={`Delete ${req.name}`}
+                            onClick={() => void handleDeleteRequest(req.id)}
+                            className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] hover:text-[#F87171]"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </ActionTooltip>
+                      </div>
+                    </>
+                  )}
                 </div>
               </ContextMenuTrigger>
               <ContextMenuContent>
                 <ContextMenuItem onSelect={() => openSavedRequest(req)}>Open in Tab</ContextMenuItem>
+                <ContextMenuItem onSelect={() => startRename('request', req.id, req.name)}>
+                  Rename Request
+                </ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem
-                  onSelect={() => void deleteSavedRequest(req.id)}
+                  onSelect={() => void handleDeleteRequest(req.id)}
                   className="text-[#F87171]"
                 >
                   Delete Request
@@ -329,7 +606,11 @@ export function Sidebar({
   return (
     <aside
       aria-label="Workspace sidebar"
-      className="flex h-full w-64 shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-base)] select-none"
+      style={width ? { width: `${width}px` } : undefined}
+      className={cn(
+        'flex h-full shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-base)] select-none',
+        !width && 'w-64',
+      )}
     >
       {/* View Switcher */}
       <div className="grid grid-cols-3 gap-1 border-b border-[var(--border-subtle)] p-1.5">
@@ -337,7 +618,7 @@ export function Sidebar({
           type="button"
           onClick={() => setView('collections')}
           className={cn(
-            'flex cursor-pointer items-center justify-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors',
+            'flex cursor-pointer items-center justify-center gap-1 rounded px-2 py-1 text-[0.75rem] font-medium transition-colors',
             view === 'collections'
               ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-xs'
               : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
@@ -350,7 +631,7 @@ export function Sidebar({
           type="button"
           onClick={() => setView('history')}
           className={cn(
-            'flex cursor-pointer items-center justify-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors',
+            'flex cursor-pointer items-center justify-center gap-1 rounded px-2 py-1 text-[0.75rem] font-medium transition-colors',
             view === 'history'
               ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-xs'
               : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
@@ -363,7 +644,7 @@ export function Sidebar({
           type="button"
           onClick={() => setView('environments')}
           className={cn(
-            'flex cursor-pointer items-center justify-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors',
+            'flex cursor-pointer items-center justify-center gap-1 rounded px-2 py-1 text-[0.75rem] font-medium transition-colors',
             view === 'environments'
               ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-xs'
               : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
@@ -443,7 +724,7 @@ export function Sidebar({
             {collections.length === 0 ? (
               <div className="px-3 py-8 text-center text-xs text-[var(--text-secondary)]">
                 No collections yet. Press{' '}
-                <kbd className="rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1 py-0.5 font-mono-code text-[10px]">
+                <kbd className="rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1 py-0.5 font-mono-code text-[0.6875rem]">
                   {newCollectionShortcut}
                 </kbd>{' '}
                 to create one.
@@ -452,53 +733,140 @@ export function Sidebar({
               <div className="flex flex-col gap-0.5">
                 {collections.map((col) => {
                   const isOpen = expandedIds.has(col.id) || q.length > 0;
+                  const isRenaming =
+                    renamingItem?.kind === 'collection' && renamingItem.id === col.id;
+                  const isConfirmingDelete =
+                    confirmDelete?.kind === 'collection' && confirmDelete.id === col.id;
+
                   return (
                     <div key={col.id}>
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
                           <div className="group flex items-center gap-1 rounded px-1.5 py-1 text-xs hover:bg-[var(--bg-hover)]">
-                            <button
-                              type="button"
-                              onClick={() => toggleExpand(col.id)}
-                              className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left font-medium text-[var(--text-primary)]"
-                            >
-                              {isOpen ? (
-                                <ChevronDown className="h-3 w-3 shrink-0 text-[var(--text-secondary)]" />
-                              ) : (
-                                <ChevronRight className="h-3 w-3 shrink-0 text-[var(--text-secondary)]" />
-                              )}
-                              <span className="truncate">{col.name}</span>
-                            </button>
-                            <ActionTooltip label="New Request">
-                              <button
-                                type="button"
-                                aria-label={`New request in ${col.name}`}
-                                onClick={() => void handleAddRequest(col.id)}
-                                className="hidden h-5 w-5 items-center justify-center rounded text-[var(--text-secondary)] group-hover:inline-flex hover:text-[var(--text-primary)]"
-                              >
-                                <Plus className="h-3 w-3" />
-                              </button>
-                            </ActionTooltip>
-                            <ActionTooltip label="New Folder">
-                              <button
-                                type="button"
-                                aria-label={`New folder in ${col.name}`}
-                                onClick={() => void handleAddFolder(col.id)}
-                                className="hidden h-5 w-5 items-center justify-center rounded text-[var(--text-secondary)] group-hover:inline-flex hover:text-[var(--text-primary)]"
-                              >
-                                <FolderPlus className="h-3 w-3" />
-                              </button>
-                            </ActionTooltip>
-                            <ActionTooltip label="Collection Settings">
-                              <button
-                                type="button"
-                                aria-label={`Settings for ${col.name}`}
-                                onClick={() => onEditCollection(col)}
-                                className="hidden h-5 w-5 items-center justify-center rounded text-[var(--text-secondary)] group-hover:inline-flex hover:text-[var(--text-primary)]"
-                              >
-                                <SlidersHorizontal className="h-3 w-3" />
-                              </button>
-                            </ActionTooltip>
+                            {isRenaming ? (
+                              <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                                <Input
+                                  autoFocus
+                                  value={renameDraft}
+                                  aria-label="Rename collection"
+                                  onChange={(e) => setRenameDraft(e.target.value)}
+                                  onBlur={() => void commitRename()}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      void commitRename();
+                                    } else if (e.key === 'Escape') {
+                                      e.preventDefault();
+                                      cancelRename();
+                                    }
+                                  }}
+                                  className="h-6 px-1.5 text-xs"
+                                />
+                              </div>
+                            ) : isConfirmingDelete ? (
+                              <div className="flex min-w-0 flex-1 items-center justify-between gap-1">
+                                <span className="truncate text-[0.75rem] font-medium text-[#F87171]">
+                                  Delete &ldquo;{col.name}&rdquo;?
+                                </span>
+                                <div className="flex shrink-0 items-center gap-1">
+                                  <ActionTooltip label="Confirm Delete Collection">
+                                    <button
+                                      type="button"
+                                      aria-label={`Confirm delete ${col.name}`}
+                                      onClick={() => void handleDeleteCollection(col.id)}
+                                      className="inline-flex h-5 items-center gap-0.5 rounded bg-[#DC2626]/20 px-1.5 text-[0.6875rem] font-medium text-[#DC2626] hover:bg-[#DC2626]/30 dark:text-[#F87171]"
+                                    >
+                                      <Check className="h-3 w-3" />
+                                      <span>Delete</span>
+                                    </button>
+                                  </ActionTooltip>
+                                  <ActionTooltip label="Cancel Delete">
+                                    <button
+                                      type="button"
+                                      aria-label="Cancel delete"
+                                      onClick={() => setConfirmDelete(null)}
+                                      className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  </ActionTooltip>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleExpand(col.id)}
+                                  onDoubleClick={(e) => {
+                                    e.stopPropagation();
+                                    startRename('collection', col.id, col.name);
+                                  }}
+                                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left font-medium text-[var(--text-primary)]"
+                                >
+                                  {isOpen ? (
+                                    <ChevronDown className="h-3 w-3 shrink-0 text-[var(--text-secondary)]" />
+                                  ) : (
+                                    <ChevronRight className="h-3 w-3 shrink-0 text-[var(--text-secondary)]" />
+                                  )}
+                                  <span className="truncate">{col.name}</span>
+                                </button>
+                                <div className={HOVER_ACTION_TRAY}>
+                                  <ActionTooltip label="New Request">
+                                    <button
+                                      type="button"
+                                      aria-label={`New request in ${col.name}`}
+                                      onClick={() => void handleAddRequest(col.id)}
+                                      className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
+                                    >
+                                      <Plus className="h-3 w-3" />
+                                    </button>
+                                  </ActionTooltip>
+                                  <ActionTooltip label="New Folder">
+                                    <button
+                                      type="button"
+                                      aria-label={`New folder in ${col.name}`}
+                                      onClick={() => void handleAddFolder(col.id)}
+                                      className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
+                                    >
+                                      <FolderPlus className="h-3 w-3" />
+                                    </button>
+                                  </ActionTooltip>
+                                  <ActionTooltip label="Rename Collection">
+                                    <button
+                                      type="button"
+                                      aria-label={`Rename ${col.name}`}
+                                      onClick={() => startRename('collection', col.id, col.name)}
+                                      className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </button>
+                                  </ActionTooltip>
+                                  <ActionTooltip label="Collection Settings">
+                                    <button
+                                      type="button"
+                                      aria-label={`Settings for ${col.name}`}
+                                      onClick={() => onEditCollection(col)}
+                                      className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
+                                    >
+                                      <SlidersHorizontal className="h-3 w-3" />
+                                    </button>
+                                  </ActionTooltip>
+                                  <ActionTooltip label="Delete Collection">
+                                    <button
+                                      type="button"
+                                      aria-label={`Delete ${col.name}`}
+                                      onClick={() => {
+                                        setRenamingItem(null);
+                                        setConfirmDelete({ kind: 'collection', id: col.id });
+                                      }}
+                                      className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] hover:text-[#F87171]"
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </button>
+                                  </ActionTooltip>
+                                </div>
+                              </>
+                            )}
                           </div>
                         </ContextMenuTrigger>
                         <ContextMenuContent>
@@ -508,12 +876,17 @@ export function Sidebar({
                           <ContextMenuItem onSelect={() => void handleAddFolder(col.id)}>
                             New Folder
                           </ContextMenuItem>
+                          <ContextMenuItem
+                            onSelect={() => startRename('collection', col.id, col.name)}
+                          >
+                            Rename Collection
+                          </ContextMenuItem>
                           <ContextMenuItem onSelect={() => onEditCollection(col)}>
                             Collection Settings &amp; Auth
                           </ContextMenuItem>
                           <ContextMenuSeparator />
                           <ContextMenuItem
-                            onSelect={() => void deleteCollection(col.id)}
+                            onSelect={() => void handleDeleteCollection(col.id)}
                             className="text-[#F87171]"
                           >
                             Delete Collection
@@ -540,7 +913,7 @@ export function Sidebar({
               <div className="flex flex-col gap-3">
                 {historyGroups.map((group) => (
                   <div key={group.label} className="flex flex-col gap-0.5">
-                    <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                    <div className="px-2 py-0.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
                       {group.label}
                     </div>
                     {group.items.map((item) => {
@@ -556,26 +929,26 @@ export function Sidebar({
                             <div className="flex min-w-0 items-center gap-1.5">
                               <span
                                 className={cn(
-                                  'font-mono-code text-[10px] font-semibold',
+                                  'font-mono-code text-[0.6875rem] font-semibold',
                                   getMethodColorClass(label),
                                 )}
                               >
                                 {label}
                               </span>
-                              <span className="truncate font-mono-code text-[11px] text-[var(--text-primary)]">
+                              <span className="truncate font-mono-code text-[0.75rem] text-[var(--text-primary)]">
                                 {item.url}
                               </span>
                             </div>
                             <span
                               className={cn(
-                                'shrink-0 rounded border px-1 font-mono-code text-[10px] tabular-nums',
+                                'shrink-0 rounded border px-1 font-mono-code text-[0.6875rem] tabular-nums',
                                 getStatusBadgeClasses(item.status),
                               )}
                             >
                               {item.status}
                             </span>
                           </div>
-                          <div className="flex items-center justify-between text-[10px] text-[var(--text-tertiary)] tabular-nums">
+                          <div className="flex items-center justify-between text-[0.6875rem] text-[var(--text-tertiary)] tabular-nums">
                             <span>{formatDuration(item.durationMs)}</span>
                             <span>{formatRelativeTime(item.createdAt)}</span>
                           </div>
