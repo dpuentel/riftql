@@ -29,6 +29,8 @@ import {
   getEffectiveShortcuts,
   keyboardEventToCombo,
 } from '@/lib/shortcuts';
+import { exportJsonFile, importJsonFileViaDialog } from '@/lib/file-io';
+import { hasNativeFileBridge } from '@/lib/tauri';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
@@ -119,29 +121,61 @@ export function SettingsModal({
   }, [recordingId, effectiveShortcuts, setShortcut]);
 
   const handleExportWorkspace = async () => {
-    const data = await exportWorkspace();
-    const json = JSON.stringify(data, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'riftql-workspace.json';
-    a.click();
-    URL.revokeObjectURL(url);
-    setDataMessage('Exported workspace JSON (secret variable values stripped).');
+    try {
+      const data = await exportWorkspace();
+      const json = JSON.stringify(data, null, 2);
+      const result = await exportJsonFile(
+        'riftql-workspace.json',
+        json,
+        'Export Workspace JSON',
+      );
+      if (!result.saved) return;
+      setDataMessage(
+        result.path
+          ? `Exported workspace JSON to ${result.path} (secret variable values stripped).`
+          : 'Exported workspace JSON (secret variable values stripped).',
+      );
+    } catch (err) {
+      setDataMessage(
+        err instanceof Error ? err.message : 'Failed to export workspace JSON.',
+      );
+    }
   };
 
-  const handleImportWorkspace = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const importWorkspaceFromText = async (text: string) => {
     try {
-      const parsed = JSON.parse(await file.text()) as WorkspaceExport;
+      const parsed = JSON.parse(text) as WorkspaceExport;
       await importWorkspace(parsed);
       setDataMessage('Workspace imported successfully.');
     } catch (err) {
       setDataMessage(
         err instanceof Error ? err.message : 'Invalid RiftQL workspace JSON file.',
       );
+    }
+  };
+
+  const handleImportWorkspaceClick = async () => {
+    if (hasNativeFileBridge()) {
+      try {
+        const text = await importJsonFileViaDialog('Import Workspace JSON');
+        if (text !== null) {
+          await importWorkspaceFromText(text);
+        }
+      } catch (err) {
+        setDataMessage(
+          err instanceof Error ? err.message : 'Failed to read RiftQL workspace JSON file.',
+        );
+      }
+      return;
+    }
+    importInputRef.current?.click();
+  };
+
+  const handleImportWorkspace = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      await importWorkspaceFromText(await file.text());
     } finally {
       e.target.value = '';
     }
@@ -485,7 +519,7 @@ export function SettingsModal({
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => importInputRef.current?.click()}
+                onClick={() => void handleImportWorkspaceClick()}
               >
                 <Upload className="h-3.5 w-3.5" />
                 <span>Import Workspace JSON</span>

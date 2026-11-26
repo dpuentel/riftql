@@ -45,6 +45,8 @@ pub fn run() {
             commands::storage::save_app_settings_cmd,
             commands::storage::export_workspace_cmd,
             commands::storage::import_workspace_cmd,
+            commands::storage::write_text_file_cmd,
+            commands::storage::read_text_file_cmd,
             commands::cookies::list_cookies_cmd,
             commands::cookies::upsert_cookie_cmd,
             commands::cookies::delete_cookie_cmd,

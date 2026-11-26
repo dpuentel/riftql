@@ -11,7 +11,7 @@ use crate::db::history::{clear_history, delete_history_entry, list_history, reco
 use crate::db::session::{list_session_tabs, save_session_tabs};
 use crate::db::settings::{get_app_settings, get_workspace_snapshot, save_app_settings};
 use crate::db::Database;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::models::{
     AppSettings, AuthConfig, CollectionRecord, EnvironmentRecord, EnvironmentVariable,
     FolderRecord, HistoryEntry, NewHistoryEntryInput, RequestDraft, SavedRequestRecord,
@@ -148,4 +148,29 @@ pub fn export_workspace_cmd(db: State<Database>) -> AppResult<WorkspaceExport> {
 #[tauri::command]
 pub fn import_workspace_cmd(db: State<Database>, payload: WorkspaceExport) -> AppResult<()> {
     db.with_conn(|conn| import_workspace(conn, payload))
+}
+
+#[tauri::command]
+pub fn write_text_file_cmd(path: String, content: String) -> AppResult<()> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::Validation("Destination file path cannot be empty".to_string()));
+    }
+    let target = std::path::Path::new(trimmed);
+    if let Some(parent) = target.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    std::fs::write(target, content.as_bytes())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn read_text_file_cmd(path: String) -> AppResult<String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::Validation("Source file path cannot be empty".to_string()));
+    }
+    Ok(std::fs::read_to_string(trimmed)?)
 }

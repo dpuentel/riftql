@@ -23,6 +23,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { exportJsonFile, importJsonFileViaDialog } from '@/lib/file-io';
+import { hasNativeFileBridge } from '@/lib/tauri';
 import { stripSecretsForExport } from '@/lib/variables';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
@@ -42,20 +44,50 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
 
   const [selectedId, setSelectedId] = React.useState<string>('');
   const [newEnvName, setNewEnvName] = React.useState('');
+  const [envNameDraft, setEnvNameDraft] = React.useState('');
   const [revealedIds, setRevealedIds] = React.useState<Set<string>>(new Set());
   const [statusMsg, setStatusMsg] = React.useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const wasOpenRef = React.useRef(false);
+  const envNameFocusedRef = React.useRef(false);
 
+  // Initialize selected environment only when opening the modal (not on every variable edit)
   React.useEffect(() => {
-    if (!open) return;
-    const preferred =
-      environments.find((e) => e.id === activeEnvironmentId) ?? environments[0];
-    if (preferred) setSelectedId(preferred.id);
-    setStatusMsg(null);
+    if (open && !wasOpenRef.current) {
+      const preferred =
+        environments.find((e) => e.id === activeEnvironmentId) ?? environments[0];
+      if (preferred) {
+        setSelectedId(preferred.id);
+      }
+      setStatusMsg(null);
+    }
+    wasOpenRef.current = open;
   }, [open, activeEnvironmentId, environments]);
+
+  // Recover selection only if the currently selected environment was deleted
+  React.useEffect(() => {
+    if (!open || environments.length === 0) return;
+    if (!selectedId || !environments.some((e) => e.id === selectedId)) {
+      const preferred =
+        environments.find((e) => e.id === activeEnvironmentId) ?? environments[0];
+      if (preferred) {
+        setSelectedId(preferred.id);
+      }
+    }
+  }, [open, selectedId, activeEnvironmentId, environments]);
 
   const selectedEnv =
     environments.find((e) => e.id === selectedId) ?? environments[0];
+
+  React.useEffect(() => {
+    if (!selectedEnv) {
+      setEnvNameDraft('');
+      return;
+    }
+    if (!envNameFocusedRef.current) {
+      setEnvNameDraft(selectedEnv.name);
+    }
+  }, [selectedEnv?.id, selectedEnv?.name]);
 
   const handleCreateEnv = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,6 +100,24 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
     });
     setNewEnvName('');
     setSelectedId(created.id);
+    setEnvNameDraft(created.name);
+  };
+
+  const commitEnvName = async (rawName: string) => {
+    if (!selectedEnv || selectedEnv.isGlobal) return;
+    const trimmed = rawName.trim();
+    if (!trimmed) {
+      setEnvNameDraft(selectedEnv.name);
+      return;
+    }
+    if (trimmed !== selectedEnv.name) {
+      await upsertEnvironment({
+        id: selectedEnv.id,
+        name: trimmed,
+        isGlobal: false,
+        variables: selectedEnv.variables,
+      });
+    }
   };
 
   const updateVariables = async (
@@ -91,24 +141,30 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
     });
   };
 
-  const handleExport = () => {
-    const stripped = stripSecretsForExport(environments);
-    const json = JSON.stringify({ version: 1, environments: stripped }, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'riftql-environments.json';
-    a.click();
-    URL.revokeObjectURL(url);
-    setStatusMsg('Exported environments (secret values stripped).');
+  const handleExport = async () => {
+    try {
+      const stripped = stripSecretsForExport(environments);
+      const json = JSON.stringify({ version: 1, environments: stripped }, null, 2);
+      const result = await exportJsonFile(
+        'riftql-environments.json',
+        json,
+        'Export Environments JSON',
+      );
+      if (!result.saved) return;
+      setStatusMsg(
+        result.path
+          ? `Exported environments to ${result.path} (secret values stripped).`
+          : 'Exported environments (secret values stripped).',
+      );
+    } catch (err) {
+      setStatusMsg(
+        err instanceof Error ? err.message : 'Failed to export environments JSON.',
+      );
+    }
   };
 
-  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const importEnvironmentsFromText = async (text: string) => {
     try {
-      const text = await file.text();
       const parsed = JSON.parse(text) as { environments?: EnvironmentRecord[] };
       const list = Array.isArray(parsed.environments) ? parsed.environments : [];
       for (const item of list) {
@@ -131,6 +187,31 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
       setStatusMsg(`Imported ${list.length} environment(s).`);
     } catch {
       setStatusMsg('Invalid environments JSON file.');
+    }
+  };
+
+  const handleImportClick = async () => {
+    if (hasNativeFileBridge()) {
+      try {
+        const text = await importJsonFileViaDialog('Import Environments JSON');
+        if (text !== null) {
+          await importEnvironmentsFromText(text);
+        }
+      } catch (err) {
+        setStatusMsg(
+          err instanceof Error ? err.message : 'Failed to read environments JSON file.',
+        );
+      }
+      return;
+    }
+    fileInputRef.current?.click();
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      await importEnvironmentsFromText(await file.text());
     } finally {
       e.target.value = '';
     }
@@ -218,16 +299,32 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
                     </span>
                   ) : (
                     <Input
-                      value={selectedEnv.name}
+                      value={envNameDraft}
                       aria-label="Environment name"
-                      onChange={(e) =>
-                        void upsertEnvironment({
-                          id: selectedEnv.id,
-                          name: e.target.value,
-                          isGlobal: false,
-                          variables: selectedEnv.variables,
-                        })
-                      }
+                      onFocus={() => {
+                        envNameFocusedRef.current = true;
+                      }}
+                      onBlur={() => {
+                        envNameFocusedRef.current = false;
+                        void commitEnvName(envNameDraft);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setEnvNameDraft(next);
+                        if (next.trim() && next.trim() === next) {
+                          void upsertEnvironment({
+                            id: selectedEnv.id,
+                            name: next,
+                            isGlobal: false,
+                            variables: selectedEnv.variables,
+                          });
+                        }
+                      }}
                       className="h-7 w-52 font-medium"
                     />
                   )}
@@ -396,7 +493,7 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
                 </table>
               </div>
 
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <Button
                   size="xs"
                   variant="ghost"
@@ -418,7 +515,9 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
                 </Button>
 
                 {statusMsg && (
-                  <span className="text-[11px] text-[var(--accent)]">{statusMsg}</span>
+                  <span className="truncate text-[11px] text-[var(--accent)]" title={statusMsg}>
+                    {statusMsg}
+                  </span>
                 )}
               </div>
             </div>
@@ -437,12 +536,12 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
             <Button
               size="xs"
               variant="secondary"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => void handleImportClick()}
             >
               <Upload className="h-3 w-3" />
               <span>Import JSON</span>
             </Button>
-            <Button size="xs" variant="secondary" onClick={handleExport}>
+            <Button size="xs" variant="secondary" onClick={() => void handleExport()}>
               <Download className="h-3 w-3" />
               <span>Export JSON (Secrets Stripped)</span>
             </Button>
