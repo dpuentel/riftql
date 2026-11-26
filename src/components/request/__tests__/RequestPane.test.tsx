@@ -1,9 +1,11 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { buildSchema } from 'graphql';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { TabBar } from '@/components/layout/TabBar';
 import { RequestPane } from '@/components/request/RequestPane';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { useSchemaStore } from '@/store/useSchemaStore';
 import { createEmptyDraft, useTabsStore } from '@/store/useTabsStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 
@@ -148,5 +150,71 @@ describe('RequestPane and TabBar', () => {
 
     expect(useTabsStore.getState().tabs[0]?.title).toBe('List Invoices');
     expect(useWorkspaceStore.getState().savedRequests[0]?.name).toBe('List Invoices');
+  });
+
+  it('supports resizing GraphQL panels and adding a query/mutation from Schema Docs into the editor', async () => {
+    const user = userEvent.setup();
+    const schema = buildSchema(`
+      type User {
+        id: ID!
+        name: String!
+      }
+      type Query {
+        user(id: ID!): User
+      }
+      type Mutation {
+        deleteUser(id: ID!): Boolean!
+      }
+    `);
+
+    useSchemaStore.getState().setSchema('https://api.test/graphql', schema);
+    useTabsStore.setState({
+      tabs: [
+        {
+          id: 'tab-gql-2',
+          title: 'GQL Docs',
+          isDirty: false,
+          draft: {
+            ...createEmptyDraft('graphql'),
+            url: 'https://api.test/graphql',
+            graphql: { query: 'query {\n  \n}', variables: '{}' },
+          },
+          isLoading: false,
+        },
+      ],
+      activeTabId: 'tab-gql-2',
+    });
+
+    render(
+      <TooltipProvider>
+        <RequestPane />
+      </TooltipProvider>,
+    );
+
+    // Variables resize separator visible by default
+    expect(screen.getByRole('separator', { name: /resize variables panel/i })).toBeInTheDocument();
+
+    // Open Schema Docs -> Schema Docs resize separator renders
+    await user.click(screen.getByRole('button', { name: /docs/i }));
+    expect(
+      screen.getByRole('separator', { name: /resize schema docs panel/i }),
+    ).toBeInTheDocument();
+
+    // Browse Query -> Add user operation to editor
+    await user.click(screen.getByRole('button', { name: /query Query/i }));
+    await user.click(screen.getByRole('button', { name: 'Add user to editor' }));
+
+    let gql = useTabsStore.getState().tabs[0]?.draft.graphql;
+    expect(gql?.operationName).toBe('User');
+    expect(gql?.query).toContain('query User($id: ID!)');
+    expect(gql?.query).toContain('user(id: $id)');
+    expect(JSON.parse(gql?.variables ?? '{}')).toEqual({ id: '' });
+
+    // Also add mutation via search box
+    await user.type(screen.getByLabelText('Search schema'), 'deleteUser');
+    await user.click(screen.getByRole('button', { name: 'Add deleteUser to editor' }));
+    gql = useTabsStore.getState().tabs[0]?.draft.graphql;
+    expect(gql?.operationName).toBe('DeleteUser');
+    expect(gql?.query).toContain('mutation DeleteUser($id: ID!)');
   });
 });

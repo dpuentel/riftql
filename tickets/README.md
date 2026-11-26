@@ -22,6 +22,7 @@ Track MVP execution and post-MVP backlog items. Every ticket maps to atomic Git 
 | [T-014](./T-014-env-selection-and-native-file-io.md) | Fix Environment selection reset & native Tauri file export/import | UI / Persistence | `DONE` |
 | [T-015](./T-015-folder-management-and-request-rename.md) | Collection folder actions, nested subfolders & inline request renaming | UI / Collections | `DONE` |
 | [T-016](./T-016-configurable-font-size.md) | Configurable UI & code editor font sizes | UI / Settings | `DONE` |
+| [T-017](./T-017-graphql-resizable-panels-and-insert.md) | Resizable GraphQL panels & insert operations from Schema Docs | UI / GraphQL | `DONE` |
 
 ---
 

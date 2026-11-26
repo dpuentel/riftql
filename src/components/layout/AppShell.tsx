@@ -65,8 +65,22 @@ export function AppShell(props: AppShellModalSlots = {}) {
   >();
   const [editingFolder, setEditingFolder] = React.useState<FolderRecord | undefined>();
   const [splitRatio, setSplitRatio] = React.useState(0.5);
+  const [sidebarWidth, setSidebarWidth] = React.useState(() => {
+    if (typeof localStorage === 'undefined') return 260;
+    try {
+      const saved = Number(localStorage.getItem('riftql-sidebar-width'));
+      if (Number.isFinite(saved) && saved >= 200 && saved <= 440) return saved;
+    } catch {
+      // ignore storage errors
+    }
+    return 260;
+  });
   const splitContainerRef = React.useRef<HTMLDivElement | null>(null);
+  const workspaceRowRef = React.useRef<HTMLDivElement | null>(null);
   const draggingRef = React.useRef(false);
+  const draggingSidebarRef = React.useRef(false);
+  const sidebarWidthRef = React.useRef(sidebarWidth);
+  sidebarWidthRef.current = sidebarWidth;
 
   const sidebarOpen = props.sidebarOpen ?? localSidebarOpen;
   const setSidebarOpen = props.setSidebarOpen ?? setLocalSidebarOpen;
@@ -88,6 +102,12 @@ export function AppShell(props: AppShellModalSlots = {}) {
 
   const handlePointerMove = React.useCallback(
     (e: PointerEvent) => {
+      if (draggingSidebarRef.current && workspaceRowRef.current) {
+        const rect = workspaceRowRef.current.getBoundingClientRect();
+        const next = Math.min(440, Math.max(200, e.clientX - rect.left));
+        setSidebarWidth(next);
+        return;
+      }
       if (!draggingRef.current || !splitContainerRef.current) return;
       const rect = splitContainerRef.current.getBoundingClientRect();
       if (settings.layout === 'horizontal') {
@@ -102,7 +122,15 @@ export function AppShell(props: AppShellModalSlots = {}) {
   );
 
   const stopDragging = React.useCallback(() => {
+    if (draggingSidebarRef.current && typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem('riftql-sidebar-width', String(Math.round(sidebarWidthRef.current)));
+      } catch {
+        // ignore storage errors
+      }
+    }
     draggingRef.current = false;
+    draggingSidebarRef.current = false;
   }, []);
 
   React.useEffect(() => {
@@ -232,22 +260,34 @@ export function AppShell(props: AppShellModalSlots = {}) {
       </header>
 
       {/* Main Workspace */}
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div ref={workspaceRowRef} className="flex min-h-0 flex-1 overflow-hidden">
         {sidebarOpen && (
-          <Sidebar
-            onOpenEnvironments={() => setEnvOpen(true)}
-            onOpenCookies={() => setCookiesOpen(true)}
-            onOpenSettings={() => props.setSettingsOpen?.(true)}
-            onEditCollection={(col) => {
-              setEditingFolder(undefined);
-              setEditingCollection(col);
-            }}
-            onEditFolder={(folder) => {
-              setEditingCollection(undefined);
-              setEditingFolder(folder);
-            }}
-            createCollectionTrigger={props.createCollectionTrigger}
-          />
+          <>
+            <Sidebar
+              width={sidebarWidth}
+              onOpenEnvironments={() => setEnvOpen(true)}
+              onOpenCookies={() => setCookiesOpen(true)}
+              onOpenSettings={() => props.setSettingsOpen?.(true)}
+              onEditCollection={(col) => {
+                setEditingFolder(undefined);
+                setEditingCollection(col);
+              }}
+              onEditFolder={(folder) => {
+                setEditingCollection(undefined);
+                setEditingFolder(folder);
+              }}
+              createCollectionTrigger={props.createCollectionTrigger}
+            />
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize Sidebar"
+              onPointerDown={() => {
+                draggingSidebarRef.current = true;
+              }}
+              className="w-[3px] shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-[var(--accent)]"
+            />
+          </>
         )}
 
         <main

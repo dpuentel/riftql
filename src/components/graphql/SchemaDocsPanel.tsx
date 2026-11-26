@@ -1,20 +1,29 @@
 import * as React from 'react';
 import type { GraphQLSchema } from 'graphql';
-import { ChevronRight, Search, X } from 'lucide-react';
+import { ChevronRight, Plus, Search, X } from 'lucide-react';
 import { ActionTooltip } from '@/components/ui/action-tooltip';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { extractSchemaSummary, type SchemaTypeDoc } from '@/lib/graphql';
+import {
+  extractSchemaSummary,
+  type GraphQLRootOperationKind,
+  type SchemaTypeDoc,
+} from '@/lib/graphql';
+import { cn } from '@/lib/utils';
 
 interface SchemaDocsPanelProps {
   schema?: GraphQLSchema;
   initialTypeName?: string;
+  width?: number;
+  onInsertOperation?: (operationKind: GraphQLRootOperationKind, fieldName: string) => void;
   onClose?: () => void;
 }
 
 export function SchemaDocsPanel({
   schema,
   initialTypeName,
+  width,
+  onInsertOperation,
   onClose,
 }: SchemaDocsPanelProps) {
   const [searchQuery, setSearchQuery] = React.useState('');
@@ -52,11 +61,23 @@ export function SchemaDocsPanel({
     );
   };
 
+  const getRootOperationKind = (typeName: string): GraphQLRootOperationKind | undefined => {
+    if (!summary) return undefined;
+    if (typeName === summary.queryTypeName) return 'query';
+    if (typeName === summary.mutationTypeName) return 'mutation';
+    if (typeName === summary.subscriptionTypeName) return 'subscription';
+    return undefined;
+  };
+
   if (!summary) {
     return (
       <aside
         aria-label="Schema Docs"
-        className="flex h-full w-72 shrink-0 flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-surface)]"
+        style={width ? { width: `${width}px` } : undefined}
+        className={cn(
+          'flex h-full shrink-0 flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-surface)]',
+          !width && 'w-80',
+        )}
       >
         <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-3 py-2">
           <span className="text-xs font-semibold text-[var(--text-primary)]">
@@ -94,10 +115,16 @@ export function SchemaDocsPanel({
       )
     : [];
 
+  const activeRootOp = activeType ? getRootOperationKind(activeType.name) : undefined;
+
   return (
     <aside
       aria-label="Schema Docs"
-      className="flex h-full w-76 shrink-0 flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-surface)]"
+      style={width ? { width: `${width}px` } : undefined}
+      className={cn(
+        'flex h-full shrink-0 flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-surface)]',
+        !width && 'w-80',
+      )}
     >
       <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-3 py-2">
         <span className="text-xs font-semibold text-[var(--text-primary)]">
@@ -188,20 +215,40 @@ export function SchemaDocsPanel({
                 <div className="text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
                   Fields ({matchingFields.length})
                 </div>
-                {matchingFields.map(({ parentType, field }) => (
-                  <button
-                    key={`${parentType}.${field.name}`}
-                    type="button"
-                    onClick={() => pushType(parentType)}
-                    className="flex cursor-pointer flex-col rounded px-2 py-1 text-left text-xs hover:bg-[var(--bg-hover)]"
-                  >
-                    <div className="font-mono-code text-[var(--text-primary)]">
-                      <span className="text-[var(--text-secondary)]">{parentType}.</span>
-                      {field.name}
-                      <span className="text-[var(--accent)]">: {field.type}</span>
+                {matchingFields.map(({ parentType, field }) => {
+                  const rootOp = getRootOperationKind(parentType);
+                  return (
+                    <div
+                      key={`${parentType}.${field.name}`}
+                      className="flex items-center justify-between gap-1.5 rounded px-2 py-1 hover:bg-[var(--bg-hover)]"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => pushType(parentType)}
+                        className="min-w-0 flex-1 cursor-pointer text-left text-xs"
+                      >
+                        <div className="truncate font-mono-code text-[var(--text-primary)]">
+                          <span className="text-[var(--text-secondary)]">{parentType}.</span>
+                          {field.name}
+                          <span className="text-[var(--accent)]">: {field.type}</span>
+                        </div>
+                      </button>
+                      {rootOp && onInsertOperation && (
+                        <ActionTooltip label={`Add ${field.name} to Query Editor`}>
+                          <button
+                            type="button"
+                            aria-label={`Add ${field.name} to editor`}
+                            onClick={() => onInsertOperation(rootOp, field.name)}
+                            className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded border border-[var(--accent)]/30 bg-[var(--accent-muted)] px-1.5 py-0.5 text-[0.6875rem] font-medium text-[var(--accent)] hover:border-[var(--accent)]"
+                          >
+                            <Plus className="h-3 w-3" />
+                            <span>Add</span>
+                          </button>
+                        </ActionTooltip>
+                      )}
                     </div>
-                  </button>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -227,36 +274,52 @@ export function SchemaDocsPanel({
                     key={f.name}
                     className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] p-2 text-xs"
                   >
-                    <div className="flex flex-wrap items-baseline gap-1 font-mono-code">
-                      <span className="font-semibold text-[var(--text-primary)]">{f.name}</span>
-                      {f.args.length > 0 && (
-                        <span className="text-[var(--text-secondary)]">
-                          (
-                          {f.args.map((a, idx) => (
-                            <React.Fragment key={a.name}>
-                              {idx > 0 && ', '}
-                              <span className="text-[var(--text-primary)]">{a.name}</span>
-                              {': '}
-                              <span className="text-[var(--accent)]">{a.type}</span>
-                              {a.defaultValue !== undefined && (
-                                <span className="text-[var(--text-tertiary)]">
-                                  {' = '}
-                                  {a.defaultValue}
-                                </span>
-                              )}
-                            </React.Fragment>
-                          ))}
-                          )
-                        </span>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-1 font-mono-code">
+                        <span className="font-semibold text-[var(--text-primary)]">{f.name}</span>
+                        {f.args.length > 0 && (
+                          <span className="text-[var(--text-secondary)]">
+                            (
+                            {f.args.map((a, idx) => (
+                              <React.Fragment key={a.name}>
+                                {idx > 0 && ', '}
+                                <span className="text-[var(--text-primary)]">{a.name}</span>
+                                {': '}
+                                <span className="text-[var(--accent)]">{a.type}</span>
+                                {a.defaultValue !== undefined && (
+                                  <span className="text-[var(--text-tertiary)]">
+                                    {' = '}
+                                    {a.defaultValue}
+                                  </span>
+                                )}
+                              </React.Fragment>
+                            ))}
+                            )
+                          </span>
+                        )}
+                        <span>:</span>
+                        <button
+                          type="button"
+                          onClick={() => pushType(f.namedType)}
+                          className="cursor-pointer text-[var(--accent)] hover:underline"
+                        >
+                          {f.type}
+                        </button>
+                      </div>
+
+                      {activeRootOp && onInsertOperation && (
+                        <ActionTooltip label={`Add ${f.name} to Query Editor`}>
+                          <button
+                            type="button"
+                            aria-label={`Add ${f.name} to editor`}
+                            onClick={() => onInsertOperation(activeRootOp, f.name)}
+                            className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded border border-[var(--accent)]/30 bg-[var(--accent-muted)] px-1.5 py-0.5 text-[0.6875rem] font-medium text-[var(--accent)] hover:border-[var(--accent)]"
+                          >
+                            <Plus className="h-3 w-3" />
+                            <span>Add</span>
+                          </button>
+                        </ActionTooltip>
                       )}
-                      <span>:</span>
-                      <button
-                        type="button"
-                        onClick={() => pushType(f.namedType)}
-                        className="cursor-pointer text-[var(--accent)] hover:underline"
-                      >
-                        {f.type}
-                      </button>
                     </div>
                     {f.isDeprecated && (
                       <div className="mt-1 flex items-center gap-1.5">
