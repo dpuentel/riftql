@@ -44,6 +44,12 @@ You can view, copy, or change this folder anytime in **Settings → Data → Loc
 
 On **Linux AppImage** builds, RiftQL enables `enableGTKAppId` (`com.riftql.app`) and registers `~/.local/share/applications/com.riftql.app.desktop` + hicolor PNG icon at startup when `APPIMAGE` is present so GNOME/Ubuntu docks display the RiftQL icon reliably.
 
+### Git-Friendly Workspace Sync (Optional)
+
+Enable or disable folder-based Git sync anytime in **Settings → Git Sync**:
+- **Migrate SQLite → Folder**, **Import Folder → SQLite**, or **Clone Git Repo** directly from Settings.
+- Writes deterministic JSON files (`riftql.workspace.json`, `environments/`, `collections/`) with clean diffs, automatically maintains `.gitignore` so secrets (`isSecret` values in SQLite / `.riftql.secrets.json`) never enter Git commits, auto-syncs edits, watches disk for `git pull` / branch switches, and includes built-in **Git Init / Pull / Commit & Push**.
+
 ---
 
 ## Tech Stack

@@ -29,6 +29,12 @@ pub enum AppError {
 
     #[error("Not found: {0}")]
     NotFound(String),
+
+    #[error("Sync error: {0}")]
+    Sync(String),
+
+    #[error("Git error: {0}")]
+    Git(String),
 }
 
 #[derive(Debug, Serialize)]
@@ -50,6 +56,8 @@ impl AppError {
             AppError::Io(_) => "IO_ERROR",
             AppError::Validation(_) => "VALIDATION_ERROR",
             AppError::NotFound(_) => "NOT_FOUND",
+            AppError::Sync(_) => "SYNC_ERROR",
+            AppError::Git(_) => "GIT_ERROR",
         }
     }
 }

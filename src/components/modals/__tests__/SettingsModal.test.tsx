@@ -195,4 +195,172 @@ describe('SettingsModal', () => {
     expect(await screen.findByText('Custom Folder')).toBeInTheDocument();
     expect(screen.getByText(/data storage moved to \/home\/user\/riftql-sync/i)).toBeInTheDocument();
   });
+
+  it('configures, migrates, pulls/commits/pushes, and disables Git-friendly workspace sync', async () => {
+    const user = userEvent.setup();
+    const calls: Array<{ cmd: string; args?: Record<string, unknown> }> = [];
+    const openDirectory = vi.fn(async () => '/home/user/team-api-repo');
+    let enabled = false;
+
+    const buildStatus = (isEnabled: boolean) => ({
+      enabled: isEnabled,
+      folderPath: '/home/user/team-api-repo',
+      remoteUrl: 'https://github.com/org/team-api.git',
+      branch: 'main',
+      autoSync: true,
+      lastSyncedAt: '2026-11-26T10:00:00Z',
+      lastError: undefined,
+      git: {
+        gitAvailable: true,
+        gitVersion: 'git version 2.47.0',
+        isGitRepo: true,
+        branch: 'main',
+        remoteUrl: 'https://github.com/org/team-api.git',
+        changedFiles: 1,
+        ahead: 0,
+        behind: 0,
+      },
+    });
+
+    setTauriBridgeAdapter({
+      invoke: async <T,>(cmd: string, args?: Record<string, unknown>) => {
+        calls.push({ cmd, args });
+        if (cmd === 'get_git_sync_status_cmd') {
+          return {
+            enabled,
+            folderPath: enabled ? '/home/user/team-api-repo' : undefined,
+            remoteUrl: enabled ? 'https://github.com/org/team-api.git' : undefined,
+            branch: enabled ? 'main' : undefined,
+            autoSync: true,
+            git: {
+              gitAvailable: true,
+              gitVersion: 'git version 2.47.0',
+              isGitRepo: enabled,
+              branch: enabled ? 'main' : undefined,
+              remoteUrl: enabled ? 'https://github.com/org/team-api.git' : undefined,
+              changedFiles: 0,
+              ahead: 0,
+              behind: 0,
+            },
+          } as T;
+        }
+        if (cmd === 'inspect_git_sync_folder_cmd') {
+          return {
+            exists: true,
+            isEmpty: !enabled,
+            hasRiftqlWorkspace: enabled,
+            collectionCount: enabled ? 1 : 0,
+            environmentCount: enabled ? 1 : 0,
+            git: {
+              gitAvailable: true,
+              gitVersion: 'git version 2.47.0',
+              isGitRepo: enabled,
+              branch: enabled ? 'main' : undefined,
+              remoteUrl: enabled ? 'https://github.com/org/team-api.git' : undefined,
+              changedFiles: enabled ? 1 : 0,
+              ahead: 0,
+              behind: 0,
+            },
+          } as T;
+        }
+        if (cmd === 'configure_git_sync_cmd') {
+          enabled = true;
+          return {
+            status: buildStatus(true),
+            message: 'Migrated SQLite workspace to /home/user/team-api-repo and enabled Git sync.',
+            workspaceReloaded: false,
+          } as T;
+        }
+        if (cmd === 'git_commit_push_workspace_cmd') {
+          return {
+            status: buildStatus(true),
+            message: 'Committed changes and pushed to origin.',
+            workspaceReloaded: false,
+          } as T;
+        }
+        if (cmd === 'git_pull_workspace_cmd') {
+          return {
+            status: buildStatus(true),
+            message: 'Already up to date.',
+            workspaceReloaded: true,
+          } as T;
+        }
+        if (cmd === 'disable_git_sync_cmd') {
+          enabled = false;
+          return buildStatus(false) as T;
+        }
+        if (cmd === 'load_workspace') {
+          return {
+            collections: [],
+            folders: [],
+            savedRequests: [],
+            environments: [
+              { id: 'g1', name: 'Global', isGlobal: true, variables: [], createdAt: '', updatedAt: '' },
+            ],
+            settings: { ...DEFAULT_SETTINGS },
+          } as T;
+        }
+        if (cmd === 'list_history_cmd' || cmd === 'list_cookies_cmd') {
+          return [] as T;
+        }
+        return undefined as T;
+      },
+      openFile: vi.fn(async () => null),
+      saveFile: vi.fn(async () => null),
+      openDirectory,
+    });
+
+    render(
+      <TooltipProvider>
+        <SettingsModal open onOpenChange={() => {}} />
+      </TooltipProvider>,
+    );
+
+    await user.click(screen.getByRole('tab', { name: /git sync/i }));
+    expect(screen.getByText('SQLite Only')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /browse/i }));
+    expect(openDirectory).toHaveBeenCalledTimes(1);
+
+    const urlInput = screen.getByLabelText(/git repository url/i);
+    await user.type(urlInput, 'https://github.com/org/team-api.git');
+    await user.click(screen.getByRole('button', { name: /migrate sqlite → folder/i }));
+
+    await user.click(screen.getByRole('button', { name: /migrate sqlite → folder & enable/i }));
+    const configCall = calls.find((c) => c.cmd === 'configure_git_sync_cmd');
+    expect(configCall?.args).toEqual({
+      folderPath: '/home/user/team-api-repo',
+      remoteUrl: 'https://github.com/org/team-api.git',
+      branch: null,
+      migrationMode: 'migrate-to-folder',
+      initGit: true,
+      autoSync: true,
+    });
+    expect(await screen.findByText('Enabled')).toBeInTheDocument();
+    expect(screen.getByText(/migrated sqlite workspace/i)).toBeInTheDocument();
+
+    // Commit & Push
+    const msgInput = screen.getByLabelText(/git commit message/i);
+    await user.clear(msgInput);
+    await user.type(msgInput, 'feat: initial sync');
+    await user.click(screen.getByRole('button', { name: /commit & push/i }));
+    const commitCall = calls.find((c) => c.cmd === 'git_commit_push_workspace_cmd');
+    expect(commitCall?.args).toEqual({
+      message: 'feat: initial sync',
+      push: true,
+    });
+
+    // Pull reloads workspace
+    await user.click(screen.getByRole('button', { name: /git pull/i }));
+    expect(calls.some((c) => c.cmd === 'git_pull_workspace_cmd')).toBe(true);
+    expect(calls.some((c) => c.cmd === 'load_workspace')).toBe(true);
+
+    // Disable Git Sync via master switch
+    const enableSwitch = screen.getByRole('switch', {
+      name: /enable git-friendly workspace sync/i,
+    });
+    await user.click(enableSwitch);
+    expect(calls.some((c) => c.cmd === 'disable_git_sync_cmd')).toBe(true);
+    expect(await screen.findByText('SQLite Only')).toBeInTheDocument();
+  });
 });

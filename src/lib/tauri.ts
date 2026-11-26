@@ -22,6 +22,10 @@ export type TauriBridgeAdapter = {
     title?: string;
     defaultPath?: string;
   }) => Promise<string | null>;
+  listen?: <T>(
+    event: string,
+    handler: (payload: T) => void,
+  ) => Promise<() => void> | (() => void);
 };
 
 let customAdapter: TauriBridgeAdapter | null = null;
@@ -111,4 +115,20 @@ export async function pickOpenDirectory(options?: {
     directory: true,
   });
   return typeof selected === 'string' ? selected : null;
+}
+
+export async function listenEvent<T>(
+  event: string,
+  handler: (payload: T) => void,
+): Promise<() => void> {
+  if (customAdapter?.listen) {
+    return customAdapter.listen<T>(event, handler);
+  }
+  if (!isTauriRuntime()) {
+    return () => {};
+  }
+  const { listen } = await import('@tauri-apps/api/event');
+  return listen<T>(event, (ev) => {
+    handler(ev.payload);
+  });
 }

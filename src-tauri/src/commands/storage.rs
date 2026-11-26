@@ -17,6 +17,7 @@ use crate::models::{
     FolderRecord, HistoryEntry, NewHistoryEntryInput, RequestDraft, SavedRequestRecord,
     SessionTabRecord, StorageInfo, WorkspaceExport, WorkspaceSnapshot,
 };
+use crate::sync::GitSyncManager;
 
 #[tauri::command]
 pub fn load_workspace(db: State<Database>) -> AppResult<WorkspaceSnapshot> {
@@ -26,6 +27,7 @@ pub fn load_workspace(db: State<Database>) -> AppResult<WorkspaceSnapshot> {
 #[tauri::command]
 pub fn upsert_collection_cmd(
     db: State<Database>,
+    sync: State<GitSyncManager>,
     id: Option<String>,
     name: String,
     description: String,
@@ -34,19 +36,28 @@ pub fn upsert_collection_cmd(
     variables: Vec<EnvironmentVariable>,
     sort_order: Option<i64>,
 ) -> AppResult<CollectionRecord> {
-    db.with_conn(|conn| {
+    let saved = db.with_conn(|conn| {
         upsert_collection(conn, id, name, description, base_url, auth, variables, sort_order)
-    })
+    })?;
+    sync.on_workspace_mutated(&db);
+    Ok(saved)
 }
 
 #[tauri::command]
-pub fn delete_collection_cmd(db: State<Database>, id: String) -> AppResult<()> {
-    db.with_conn(|conn| delete_collection(conn, &id))
+pub fn delete_collection_cmd(
+    db: State<Database>,
+    sync: State<GitSyncManager>,
+    id: String,
+) -> AppResult<()> {
+    db.with_conn(|conn| delete_collection(conn, &id))?;
+    sync.on_workspace_mutated(&db);
+    Ok(())
 }
 
 #[tauri::command]
 pub fn upsert_folder_cmd(
     db: State<Database>,
+    sync: State<GitSyncManager>,
     id: Option<String>,
     collection_id: String,
     parent_id: Option<String>,
@@ -55,7 +66,7 @@ pub fn upsert_folder_cmd(
     auth: AuthConfig,
     sort_order: Option<i64>,
 ) -> AppResult<FolderRecord> {
-    db.with_conn(|conn| {
+    let saved = db.with_conn(|conn| {
         upsert_folder(
             conn,
             id,
@@ -66,74 +77,108 @@ pub fn upsert_folder_cmd(
             auth,
             sort_order,
         )
-    })
+    })?;
+    sync.on_workspace_mutated(&db);
+    Ok(saved)
 }
 
 #[tauri::command]
-pub fn delete_folder_cmd(db: State<Database>, id: String) -> AppResult<()> {
-    db.with_conn(|conn| delete_folder(conn, &id))
+pub fn delete_folder_cmd(
+    db: State<Database>,
+    sync: State<GitSyncManager>,
+    id: String,
+) -> AppResult<()> {
+    db.with_conn(|conn| delete_folder(conn, &id))?;
+    sync.on_workspace_mutated(&db);
+    Ok(())
 }
 
 #[tauri::command]
 pub fn upsert_saved_request_cmd(
     db: State<Database>,
+    sync: State<GitSyncManager>,
     id: Option<String>,
     collection_id: String,
     folder_id: Option<String>,
     draft: RequestDraft,
     sort_order: Option<i64>,
 ) -> AppResult<SavedRequestRecord> {
-    db.with_conn(|conn| upsert_saved_request(conn, id, collection_id, folder_id, draft, sort_order))
+    let saved = db.with_conn(|conn| {
+        upsert_saved_request(conn, id, collection_id, folder_id, draft, sort_order)
+    })?;
+    sync.on_workspace_mutated(&db);
+    Ok(saved)
 }
 
 #[tauri::command]
-pub fn delete_saved_request_cmd(db: State<Database>, id: String) -> AppResult<()> {
-    db.with_conn(|conn| delete_saved_request(conn, &id))
+pub fn delete_saved_request_cmd(
+    db: State<Database>,
+    sync: State<GitSyncManager>,
+    id: String,
+) -> AppResult<()> {
+    db.with_conn(|conn| delete_saved_request(conn, &id))?;
+    sync.on_workspace_mutated(&db);
+    Ok(())
 }
 
 #[tauri::command]
 pub fn move_saved_request_cmd(
     db: State<Database>,
+    sync: State<GitSyncManager>,
     id: String,
     target_collection_id: String,
     target_folder_id: Option<String>,
 ) -> AppResult<SavedRequestRecord> {
-    db.with_conn(|conn| {
+    let moved = db.with_conn(|conn| {
         move_saved_request(
             conn,
             &id,
             &target_collection_id,
             target_folder_id.as_deref(),
         )
-    })
+    })?;
+    sync.on_workspace_mutated(&db);
+    Ok(moved)
 }
 
 #[tauri::command]
 pub fn move_folder_cmd(
     db: State<Database>,
+    sync: State<GitSyncManager>,
     id: String,
     target_collection_id: String,
     target_parent_id: Option<String>,
 ) -> AppResult<()> {
     db.with_conn(|conn| {
         move_folder(conn, &id, &target_collection_id, target_parent_id.as_deref())
-    })
+    })?;
+    sync.on_workspace_mutated(&db);
+    Ok(())
 }
 
 #[tauri::command]
 pub fn upsert_environment_cmd(
     db: State<Database>,
+    sync: State<GitSyncManager>,
     id: Option<String>,
     name: String,
     is_global: bool,
     variables: Vec<EnvironmentVariable>,
 ) -> AppResult<EnvironmentRecord> {
-    db.with_conn(|conn| upsert_environment(conn, id, name, is_global, variables))
+    let saved = db.with_conn(|conn| upsert_environment(conn, id, name, is_global, variables))?;
+    sync.on_workspace_mutated(&db);
+    Ok(saved)
 }
 
 #[tauri::command]
-pub fn delete_environment_cmd(db: State<Database>, id: String) -> AppResult<()> {
-    db.with_conn(|conn| delete_environment(conn, &id))
+pub fn delete_environment_cmd(
+    db: State<Database>,
+    sync: State<GitSyncManager>,
+    id: String,
+) -> AppResult<()> {
+    db.with_conn(|conn| delete_environment(conn, &id))?;
+    sync.on_workspace_mutated(&db);
+    Ok(())
 }
 
 #[tauri::command]
@@ -188,8 +233,14 @@ pub fn export_workspace_cmd(db: State<Database>) -> AppResult<WorkspaceExport> {
 }
 
 #[tauri::command]
-pub fn import_workspace_cmd(db: State<Database>, payload: WorkspaceExport) -> AppResult<()> {
-    db.with_conn(|conn| import_workspace(conn, payload))
+pub fn import_workspace_cmd(
+    db: State<Database>,
+    sync: State<GitSyncManager>,
+    payload: WorkspaceExport,
+) -> AppResult<()> {
+    db.with_conn(|conn| import_workspace(conn, payload))?;
+    sync.on_workspace_mutated(&db);
+    Ok(())
 }
 
 #[tauri::command]

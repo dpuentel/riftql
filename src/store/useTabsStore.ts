@@ -118,8 +118,8 @@ function scheduleSessionPersist(tabs: RequestTab[], activeTabId: string): void {
   }, 300);
 }
 
-function createTabFromSaved(req: SavedRequestRecord): RequestTab {
-  const draft: RequestDraft = {
+function draftFromSaved(req: SavedRequestRecord): RequestDraft {
+  return {
     id: req.id,
     name: req.name,
     protocol: req.protocol,
@@ -132,6 +132,9 @@ function createTabFromSaved(req: SavedRequestRecord): RequestTab {
     graphql: req.graphql,
     settings: req.settings,
   };
+}
+
+function createTabFromSaved(req: SavedRequestRecord): RequestTab {
   return {
     id: nanoid(),
     savedRequestId: req.id,
@@ -139,7 +142,7 @@ function createTabFromSaved(req: SavedRequestRecord): RequestTab {
     folderId: req.folderId,
     title: req.name,
     isDirty: false,
-    draft,
+    draft: draftFromSaved(req),
     isLoading: false,
   };
 }
@@ -177,6 +180,7 @@ interface TabsState {
   ) => void;
   syncMovedCollectionRequests: (movedRequestIds: Set<string>, collectionId: string) => void;
   detachDeletedSavedRequests: (deletedIds: Set<string>) => void;
+  syncTabsWithWorkspace: (savedRequests: SavedRequestRecord[]) => void;
   markTabSaved: (tabId: string, saved: SavedRequestRecord) => void;
   setTabResponse: (tabId: string, response: HttpExecutionResponse | undefined) => void;
   sendTabRequest: (tabId: string) => Promise<void>;
@@ -477,6 +481,47 @@ export const useTabsStore = create<TabsState>((set, get) => ({
         collectionId: undefined,
         folderId: undefined,
         isDirty: true,
+      };
+    });
+    if (!changed) return;
+    set({ tabs: nextTabs });
+    scheduleSessionPersist(nextTabs, get().activeTabId);
+  },
+
+  syncTabsWithWorkspace: (savedRequests) => {
+    const requestMap = new Map(savedRequests.map((r) => [r.id, r]));
+    let changed = false;
+    const nextTabs = get().tabs.map((tab) => {
+      if (!tab.savedRequestId) return tab;
+      const matched = requestMap.get(tab.savedRequestId);
+      if (!matched) {
+        changed = true;
+        return {
+          ...tab,
+          savedRequestId: undefined,
+          collectionId: undefined,
+          folderId: undefined,
+          isDirty: true,
+        };
+      }
+      if (tab.isDirty) {
+        if (tab.collectionId !== matched.collectionId || tab.folderId !== matched.folderId) {
+          changed = true;
+          return {
+            ...tab,
+            collectionId: matched.collectionId,
+            folderId: matched.folderId,
+          };
+        }
+        return tab;
+      }
+      changed = true;
+      return {
+        ...tab,
+        collectionId: matched.collectionId,
+        folderId: matched.folderId,
+        title: matched.name,
+        draft: draftFromSaved(matched),
       };
     });
     if (!changed) return;

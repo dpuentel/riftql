@@ -30,13 +30,15 @@ import {
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
-import type { CollectionRecord, FolderRecord } from '@/types/storage';
+import type { CollectionRecord, FolderRecord, GitSyncStatus } from '@/types/storage';
 
 export interface AppShellModalSlots {
   commandPaletteOpen?: boolean;
   setCommandPaletteOpen?: (open: boolean) => void;
   settingsOpen?: boolean;
   setSettingsOpen?: (open: boolean) => void;
+  onOpenGitSyncSettings?: () => void;
+  gitSyncStatus?: GitSyncStatus | null;
   importCurlOpen?: boolean;
   setImportCurlOpen?: (open: boolean) => void;
   codeSnippetOpen?: boolean;
@@ -268,6 +270,8 @@ export function AppShell(props: AppShellModalSlots = {}) {
               onOpenEnvironments={() => setEnvOpen(true)}
               onOpenCookies={() => setCookiesOpen(true)}
               onOpenSettings={() => props.setSettingsOpen?.(true)}
+              onOpenGitSyncSettings={props.onOpenGitSyncSettings}
+              gitSyncStatus={props.gitSyncStatus}
               onEditCollection={(col) => {
                 setEditingFolder(undefined);
                 setEditingCollection(col);

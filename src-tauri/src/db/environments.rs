@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
@@ -8,7 +10,8 @@ use crate::db::collections::{
 };
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    EnvironmentRecord, EnvironmentVariable, RequestDraft, WorkspaceExport,
+    EnvironmentRecord, EnvironmentVariable, FolderRecord, LocalSecretsStore, RequestDraft,
+    WorkspaceExport,
 };
 
 pub fn list_environments(conn: &Connection) -> AppResult<Vec<EnvironmentRecord>> {
@@ -296,6 +299,392 @@ pub fn import_workspace(conn: &mut Connection, payload: WorkspaceExport) -> AppR
         } else {
             upsert_environment(&tx, Some(env.id), env.name, false, env.variables)?;
         }
+    }
+
+    tx.commit()?;
+    Ok(())
+}
+
+fn order_folders_topologically(folders: Vec<FolderRecord>, collection_ids: &HashSet<String>) -> AppResult<Vec<FolderRecord>> {
+    for f in &folders {
+        if !collection_ids.contains(&f.collection_id) {
+            return Err(AppError::Validation(format!(
+                "Folder '{}' references missing collection '{}'",
+                f.name, f.collection_id
+            )));
+        }
+    }
+
+    let folder_collection_map: HashMap<String, String> = folders
+        .iter()
+        .map(|f| (f.id.clone(), f.collection_id.clone()))
+        .collect();
+
+    for f in &folders {
+        if let Some(pid) = &f.parent_id {
+            match folder_collection_map.get(pid) {
+                None => {
+                    return Err(AppError::Validation(format!(
+                        "Folder '{}' references missing parent folder '{}'",
+                        f.name, pid
+                    )));
+                }
+                Some(parent_col) if parent_col != &f.collection_id => {
+                    return Err(AppError::Validation(format!(
+                        "Folder '{}' parent '{}' belongs to a different collection",
+                        f.name, pid
+                    )));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut ordered = Vec::with_capacity(folders.len());
+    let mut inserted = HashSet::new();
+    let mut pending = folders;
+
+    while !pending.is_empty() {
+        let mut next = Vec::new();
+        let mut progressed = false;
+        for folder in pending {
+            let ready = match &folder.parent_id {
+                None => true,
+                Some(pid) => inserted.contains(pid),
+            };
+            if ready {
+                inserted.insert(folder.id.clone());
+                ordered.push(folder);
+                progressed = true;
+            } else {
+                next.push(folder);
+            }
+        }
+        if !progressed {
+            return Err(AppError::Validation(
+                "Workspace contains cyclic folder references".to_string(),
+            ));
+        }
+        pending = next;
+    }
+
+    Ok(ordered)
+}
+
+fn restore_variable_secrets(
+    vars: &mut [EnvironmentVariable],
+    local_by_id: Option<&HashMap<String, String>>,
+    local_by_key: Option<&HashMap<String, String>>,
+    fallback_entity: Option<&HashMap<String, String>>,
+    fallback_global: Option<&HashMap<String, String>>,
+) {
+    for var in vars.iter_mut() {
+        if var.is_secret && var.value.is_empty() {
+            if let Some(val) = local_by_id.and_then(|m| m.get(&var.id)) {
+                var.value = val.clone();
+                continue;
+            }
+            if let Some(val) = local_by_key.and_then(|m| m.get(&var.key)) {
+                var.value = val.clone();
+                continue;
+            }
+            if let Some(val) = fallback_entity.and_then(|m| m.get(&var.id).or_else(|| m.get(&var.key))) {
+                var.value = val.clone();
+                continue;
+            }
+            if let Some(val) = fallback_global.and_then(|m| m.get(&var.id).or_else(|| m.get(&var.key))) {
+                var.value = val.clone();
+            }
+        }
+    }
+}
+
+/// Replaces collections, folders, saved requests, and environments in SQLite from a parsed
+/// workspace tree while preserving existing local secret values, `created_at` timestamps,
+/// history, cookies, session tabs, and UI settings.
+pub fn reconcile_workspace_from_disk(
+    conn: &mut Connection,
+    mut payload: WorkspaceExport,
+    fallback_secrets: &LocalSecretsStore,
+) -> AppResult<()> {
+    if payload.version != 1 {
+        return Err(AppError::Validation(format!(
+            "Unsupported workspace version: {}",
+            payload.version
+        )));
+    }
+
+    let collection_ids: HashSet<String> = payload.collections.iter().map(|c| c.id.clone()).collect();
+    let ordered_folders = order_folders_topologically(payload.folders, &collection_ids)?;
+    let folder_col_map: HashMap<String, String> = ordered_folders
+        .iter()
+        .map(|f| (f.id.clone(), f.collection_id.clone()))
+        .collect();
+
+    for req in &payload.saved_requests {
+        if !collection_ids.contains(&req.collection_id) {
+            return Err(AppError::Validation(format!(
+                "Request '{}' references missing collection '{}'",
+                req.name, req.collection_id
+            )));
+        }
+        if let Some(fid) = &req.folder_id {
+            match folder_col_map.get(fid) {
+                None => {
+                    return Err(AppError::Validation(format!(
+                        "Request '{}' references missing folder '{}'",
+                        req.name, fid
+                    )));
+                }
+                Some(col_id) if col_id != &req.collection_id => {
+                    return Err(AppError::Validation(format!(
+                        "Request '{}' folder '{}' belongs to another collection",
+                        req.name, fid
+                    )));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let tx = conn.transaction()?;
+
+    // Snapshot existing created_at timestamps and secret values before replacing tables
+    let existing_cols = list_collections(&tx)?;
+    let mut col_created_at: HashMap<String, String> = HashMap::new();
+    let mut col_secret_by_id: HashMap<String, HashMap<String, String>> = HashMap::new();
+    let mut col_secret_by_key: HashMap<String, HashMap<String, String>> = HashMap::new();
+    for c in existing_cols {
+        col_created_at.insert(c.id.clone(), c.created_at);
+        let mut by_id = HashMap::new();
+        let mut by_key = HashMap::new();
+        for v in c.variables {
+            if v.is_secret && !v.value.is_empty() {
+                by_id.insert(v.id, v.value.clone());
+                by_key.insert(v.key, v.value);
+            }
+        }
+        col_secret_by_id.insert(c.id.clone(), by_id);
+        col_secret_by_key.insert(c.id, by_key);
+    }
+
+    let folder_created_at: HashMap<String, String> = list_folders(&tx)?
+        .into_iter()
+        .map(|f| (f.id, f.created_at))
+        .collect();
+    let req_created_at: HashMap<String, String> = list_saved_requests(&tx)?
+        .into_iter()
+        .map(|r| (r.id, r.created_at))
+        .collect();
+
+    let existing_envs = list_environments(&tx)?;
+    let mut existing_global_id: Option<String> = None;
+    let mut env_created_at: HashMap<String, String> = HashMap::new();
+    let mut env_secret_by_id: HashMap<String, HashMap<String, String>> = HashMap::new();
+    let mut env_secret_by_key: HashMap<String, HashMap<String, String>> = HashMap::new();
+    for e in existing_envs {
+        if e.is_global && existing_global_id.is_none() {
+            existing_global_id = Some(e.id.clone());
+        }
+        env_created_at.insert(e.id.clone(), e.created_at);
+        let mut by_id = HashMap::new();
+        let mut by_key = HashMap::new();
+        for v in e.variables {
+            if v.is_secret && !v.value.is_empty() {
+                by_id.insert(v.id, v.value.clone());
+                by_key.insert(v.key, v.value);
+            }
+        }
+        if e.is_global {
+            env_secret_by_id.insert("__global__".to_string(), by_id.clone());
+            env_secret_by_key.insert("__global__".to_string(), by_key.clone());
+        }
+        env_secret_by_id.insert(e.id.clone(), by_id);
+        env_secret_by_key.insert(e.id, by_key);
+    }
+
+    // Restore local secrets onto incoming collections and environments
+    for col in &mut payload.collections {
+        restore_variable_secrets(
+            &mut col.variables,
+            col_secret_by_id.get(&col.id),
+            col_secret_by_key.get(&col.id),
+            fallback_secrets.collections.get(&col.id),
+            None,
+        );
+    }
+
+    for env in &mut payload.environments {
+        if env.is_global {
+            restore_variable_secrets(
+                &mut env.variables,
+                env_secret_by_id
+                    .get(&env.id)
+                    .or_else(|| env_secret_by_id.get("__global__")),
+                env_secret_by_key
+                    .get(&env.id)
+                    .or_else(|| env_secret_by_key.get("__global__")),
+                fallback_secrets.environments.get(&env.id),
+                fallback_secrets.environments.get("__global__"),
+            );
+        } else {
+            restore_variable_secrets(
+                &mut env.variables,
+                env_secret_by_id.get(&env.id),
+                env_secret_by_key.get(&env.id),
+                fallback_secrets.environments.get(&env.id),
+                None,
+            );
+        }
+    }
+
+    // Replace only synced workspace tables; leave history, cookies, session_tabs, app_settings intact.
+    tx.execute("DELETE FROM saved_requests", [])?;
+    tx.execute("DELETE FROM folders", [])?;
+    tx.execute("DELETE FROM collections", [])?;
+    tx.execute("DELETE FROM environments WHERE is_global = 0", [])?;
+
+    let now = Utc::now().to_rfc3339();
+
+    for col in payload.collections {
+        let created = col_created_at
+            .get(&col.id)
+            .cloned()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| now.clone());
+        let auth_json = serde_json::to_string(&col.auth)?;
+        let vars_json = serde_json::to_string(&col.variables)?;
+        tx.execute(
+            "INSERT INTO collections (id, name, description, base_url, auth_json, variables_json, sort_order, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                col.id,
+                col.name.trim(),
+                col.description,
+                col.base_url.trim(),
+                auth_json,
+                vars_json,
+                col.sort_order,
+                created,
+                now
+            ],
+        )?;
+    }
+
+    for folder in ordered_folders {
+        let created = folder_created_at
+            .get(&folder.id)
+            .cloned()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| now.clone());
+        let auth_json = serde_json::to_string(&folder.auth)?;
+        tx.execute(
+            "INSERT INTO folders (id, collection_id, parent_id, name, base_url, auth_json, sort_order, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                folder.id,
+                folder.collection_id,
+                folder.parent_id,
+                folder.name.trim(),
+                folder.base_url.trim(),
+                auth_json,
+                folder.sort_order,
+                created,
+                now
+            ],
+        )?;
+    }
+
+    for req in payload.saved_requests {
+        let created = req_created_at
+            .get(&req.id)
+            .cloned()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| now.clone());
+        let req_name = if req.name.trim().is_empty() {
+            "Untitled Request".to_string()
+        } else {
+            req.name.trim().to_string()
+        };
+        let protocol_str = match req.protocol {
+            crate::models::RequestProtocol::Rest => "rest",
+            crate::models::RequestProtocol::Graphql => "graphql",
+        };
+        let params_json = serde_json::to_string(&req.params)?;
+        let headers_json = serde_json::to_string(&req.headers)?;
+        let auth_json = serde_json::to_string(&req.auth)?;
+        let body_json = serde_json::to_string(&req.body)?;
+        let graphql_json = serde_json::to_string(&req.graphql)?;
+        let settings_json = serde_json::to_string(&req.settings)?;
+        tx.execute(
+            "INSERT INTO saved_requests (
+                id, collection_id, folder_id, name, protocol, method, url,
+                params_json, headers_json, auth_json, body_json, graphql_json, settings_json,
+                sort_order, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            params![
+                req.id,
+                req.collection_id,
+                req.folder_id,
+                req_name,
+                protocol_str,
+                req.method,
+                req.url,
+                params_json,
+                headers_json,
+                auth_json,
+                body_json,
+                graphql_json,
+                settings_json,
+                req.sort_order,
+                created,
+                now
+            ],
+        )?;
+    }
+
+    let mut handled_global = false;
+    for env in payload.environments {
+        let vars_json = serde_json::to_string(&env.variables)?;
+        if env.is_global && !handled_global {
+            handled_global = true;
+            if let Some(global_id) = &existing_global_id {
+                tx.execute(
+                    "UPDATE environments
+                     SET name = ?2, is_global = 1, variables_json = ?3, updated_at = ?4
+                     WHERE id = ?1",
+                    params![global_id, env.name.trim(), vars_json, now],
+                )?;
+                continue;
+            }
+        }
+        let created = env_created_at
+            .get(&env.id)
+            .cloned()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| now.clone());
+        let env_id = if existing_global_id.as_deref() == Some(env.id.as_str()) {
+            Uuid::new_v4().to_string()
+        } else {
+            env.id
+        };
+        tx.execute(
+            "INSERT INTO environments (id, name, is_global, variables_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                env_id,
+                env.name.trim(),
+                if env.is_global && existing_global_id.is_none() {
+                    existing_global_id = Some(env_id.clone());
+                    1
+                } else {
+                    0
+                },
+                vars_json,
+                created,
+                now
+            ],
+        )?;
     }
 
     tx.commit()?;

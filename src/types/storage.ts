@@ -153,6 +153,48 @@ export interface StorageInfo {
   isCustom: boolean;
 }
 
+export type GitSyncMigrationMode =
+  | 'migrate-to-folder'
+  | 'import-from-folder'
+  | 'clone-repo';
+
+export interface GitRepoStatus {
+  gitAvailable: boolean;
+  gitVersion?: string;
+  isGitRepo: boolean;
+  branch?: string;
+  remoteUrl?: string;
+  changedFiles: number;
+  ahead: number;
+  behind: number;
+}
+
+export interface FolderInspection {
+  exists: boolean;
+  isEmpty: boolean;
+  hasRiftqlWorkspace: boolean;
+  collectionCount: number;
+  environmentCount: number;
+  git: GitRepoStatus;
+}
+
+export interface GitSyncStatus {
+  enabled: boolean;
+  folderPath?: string;
+  remoteUrl?: string;
+  branch?: string;
+  autoSync: boolean;
+  lastSyncedAt?: string;
+  lastError?: string;
+  git: GitRepoStatus;
+}
+
+export interface GitSyncActionResult {
+  status: GitSyncStatus;
+  message: string;
+  workspaceReloaded: boolean;
+}
+
 export interface WorkspaceSnapshot {
   collections: CollectionRecord[];
   folders: FolderRecord[];

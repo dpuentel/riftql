@@ -3,14 +3,16 @@ import { AppShell } from '@/components/layout/AppShell';
 import { CodeSnippetModal } from '@/components/modals/CodeSnippetModal';
 import { CommandPalette } from '@/components/modals/CommandPalette';
 import { ImportCurlModal } from '@/components/modals/ImportCurlModal';
-import { SettingsModal } from '@/components/modals/SettingsModal';
+import { SettingsModal, type SettingsTab } from '@/components/modals/SettingsModal';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useGlobalShortcuts } from '@/hooks/useGlobalShortcuts';
 import { isCurlCommand, parseCurlCommand } from '@/lib/curl-parser';
 import { formatGraphQL } from '@/lib/graphql';
+import { hasNativeFileBridge, invokeCommand, listenEvent } from '@/lib/tauri';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useTabsStore } from '@/store/useTabsStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
+import type { GitSyncStatus } from '@/types/storage';
 
 export function App() {
   const loadWorkspace = useWorkspaceStore((s) => s.loadWorkspace);
@@ -34,6 +36,8 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [commandPaletteOpen, setCommandPaletteOpen] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('general');
+  const [gitSyncStatus, setGitSyncStatus] = React.useState<GitSyncStatus | null>(null);
   const [importCurlOpen, setImportCurlOpen] = React.useState(false);
   const [codeSnippetOpen, setCodeSnippetOpen] = React.useState(false);
   const [envOpen, setEnvOpen] = React.useState(false);
@@ -44,12 +48,10 @@ export function App() {
   const [toastMsg, setToastMsg] = React.useState<string | null>(null);
   const urlInputRef = React.useRef<HTMLInputElement | null>(null);
 
-  React.useEffect(() => {
-    void (async () => {
-      await loadWorkspace();
-      await loadSessionTabs();
-    })();
-  }, [loadWorkspace, loadSessionTabs]);
+  const openSettings = React.useCallback((tab: SettingsTab = 'general') => {
+    setSettingsTab(tab);
+    setSettingsOpen(true);
+  }, []);
 
   const showToast = React.useCallback((msg: string) => {
     setToastMsg(msg);
@@ -57,6 +59,53 @@ export function App() {
       setToastMsg((prev) => (prev === msg ? null : prev));
     }, 2600);
   }, []);
+
+  React.useEffect(() => {
+    void (async () => {
+      await loadWorkspace();
+      await loadSessionTabs();
+      if (hasNativeFileBridge()) {
+        try {
+          const status = await invokeCommand<GitSyncStatus>('get_git_sync_status_cmd');
+          if (status && typeof status.enabled === 'boolean') {
+            setGitSyncStatus(status);
+          }
+        } catch {
+          // Ignore when unavailable
+        }
+      }
+    })();
+  }, [loadWorkspace, loadSessionTabs]);
+
+  React.useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | undefined;
+
+    void listenEvent<GitSyncStatus>('riftql://git-sync-updated', (status) => {
+      if (!active) return;
+      if (status && typeof status.enabled === 'boolean') {
+        setGitSyncStatus(status);
+      }
+      void (async () => {
+        await loadWorkspace();
+        useTabsStore
+          .getState()
+          .syncTabsWithWorkspace(useWorkspaceStore.getState().savedRequests);
+        showToast('Workspace reloaded from Git sync folder.');
+      })();
+    }).then((fn) => {
+      if (!active) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [loadWorkspace, showToast]);
 
   const handlePasteCurlInUrl = React.useCallback(
     (pasted: string): boolean => {
@@ -136,7 +185,7 @@ export function App() {
       toggleLayout: () => void toggleLayout(),
       toggleTheme: () => void toggleTheme(),
       formatBody: handleFormatActiveBody,
-      openSettings: () => setSettingsOpen(true),
+      openSettings: () => openSettings('general'),
       openCodeSnippet: () => setCodeSnippetOpen(true),
       importCurl: () => setImportCurlOpen(true),
       openCookies: () => setCookiesOpen(true),
@@ -157,7 +206,15 @@ export function App() {
         commandPaletteOpen={commandPaletteOpen}
         setCommandPaletteOpen={setCommandPaletteOpen}
         settingsOpen={settingsOpen}
-        setSettingsOpen={setSettingsOpen}
+        setSettingsOpen={(nextOpen) => {
+          if (nextOpen) {
+            openSettings('general');
+          } else {
+            setSettingsOpen(false);
+          }
+        }}
+        onOpenGitSyncSettings={() => openSettings('git-sync')}
+        gitSyncStatus={gitSyncStatus}
         importCurlOpen={importCurlOpen}
         setImportCurlOpen={setImportCurlOpen}
         codeSnippetOpen={codeSnippetOpen}
@@ -185,7 +242,7 @@ export function App() {
               onToggleSidebar={() => setSidebarOpen((v) => !v)}
               onOpenCookies={() => setCookiesOpen(true)}
               onOpenEnvironments={() => setEnvOpen(true)}
-              onOpenSettings={() => setSettingsOpen(true)}
+              onOpenSettings={() => openSettings('general')}
               onNewCollection={() => {
                 setSidebarOpen(true);
                 setCreateCollectionTrigger((n) => n + 1);
@@ -195,6 +252,8 @@ export function App() {
               open={settingsOpen}
               onOpenChange={setSettingsOpen}
               onRecordingChange={setRecordingShortcut}
+              initialTab={settingsTab}
+              onGitSyncStatusChange={setGitSyncStatus}
             />
             {toastMsg && (
               <div

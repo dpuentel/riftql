@@ -6,6 +6,7 @@ import {
   Cookie,
   Folder,
   FolderPlus,
+  GitBranch,
   Globe,
   History,
   Layers,
@@ -40,7 +41,13 @@ import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { createEmptyDraft, useTabsStore } from '@/store/useTabsStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
-import type { CollectionRecord, FolderRecord, HistoryEntry, SavedRequestRecord } from '@/types/storage';
+import type {
+  CollectionRecord,
+  FolderRecord,
+  GitSyncStatus,
+  HistoryEntry,
+  SavedRequestRecord,
+} from '@/types/storage';
 
 export type DragPayload =
   | { kind: 'request'; id: string }
@@ -99,6 +106,8 @@ interface SidebarProps {
   onOpenEnvironments: () => void;
   onOpenCookies: () => void;
   onOpenSettings: () => void;
+  onOpenGitSyncSettings?: () => void;
+  gitSyncStatus?: GitSyncStatus | null;
   onEditCollection: (collection: CollectionRecord) => void;
   onEditFolder: (folder: FolderRecord) => void;
   createCollectionTrigger?: number;
@@ -142,6 +151,8 @@ export function Sidebar({
   onOpenEnvironments,
   onOpenCookies,
   onOpenSettings,
+  onOpenGitSyncSettings,
+  gitSyncStatus,
   onEditCollection,
   onEditFolder,
   createCollectionTrigger,
@@ -1250,7 +1261,7 @@ export function Sidebar({
       </div>
 
       {/* Footer Quick Tools */}
-      <div className="flex items-center justify-between border-t border-[var(--border-subtle)] px-2 py-1.5">
+      <div className="flex items-center justify-between gap-1 border-t border-[var(--border-subtle)] px-2 py-1.5">
         <ActionTooltip label="Manage Domain Cookie Jar" actionId="openCookies" side="top">
           <Button size="xs" variant="ghost" onClick={onOpenCookies}>
             <span
@@ -1264,16 +1275,48 @@ export function Sidebar({
           </Button>
         </ActionTooltip>
 
-        <ActionTooltip label="Open Settings" actionId="openSettings" side="top">
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            aria-label="Open Settings"
-            onClick={onOpenSettings}
-          >
-            <Settings className="h-3.5 w-3.5" />
-          </Button>
-        </ActionTooltip>
+        <div className="flex items-center gap-0.5">
+          {gitSyncStatus?.enabled && (
+            <ActionTooltip
+              label={
+                gitSyncStatus.lastError
+                  ? `Git Sync Error: ${gitSyncStatus.lastError}`
+                  : `Git Sync Active: ${gitSyncStatus.folderPath ?? ''}`
+              }
+              side="top"
+            >
+              <Button
+                size="xs"
+                variant="ghost"
+                aria-label="Open Git Sync Settings"
+                onClick={onOpenGitSyncSettings ?? onOpenSettings}
+                className="max-w-[7rem] gap-1 px-1.5 font-mono-code text-[0.6875rem]"
+              >
+                <span
+                  className={cn(
+                    'h-1.5 w-1.5 shrink-0 rounded-full',
+                    gitSyncStatus.lastError ? 'bg-[#F87171]' : 'bg-[#34D399]',
+                  )}
+                />
+                <GitBranch className="h-3 w-3 shrink-0 text-[var(--accent)]" />
+                <span className="truncate">
+                  {gitSyncStatus.git.branch || 'Synced'}
+                </span>
+              </Button>
+            </ActionTooltip>
+          )}
+
+          <ActionTooltip label="Open Settings" actionId="openSettings" side="top">
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Open Settings"
+              onClick={onOpenSettings}
+            >
+              <Settings className="h-3.5 w-3.5" />
+            </Button>
+          </ActionTooltip>
+        </div>
       </div>
     </aside>
   );

@@ -91,6 +91,10 @@ impl Database {
         })
     }
 
+    pub fn default_data_dir(&self) -> &Path {
+        &self.default_data_dir
+    }
+
     pub fn with_conn<F, T>(&self, f: F) -> AppResult<T>
     where
         F: FnOnce(&mut Connection) -> AppResult<T>,

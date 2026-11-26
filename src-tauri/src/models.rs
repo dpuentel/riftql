@@ -404,6 +404,106 @@ pub struct StorageInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct GitSyncConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub folder_path: Option<String>,
+    #[serde(default)]
+    pub remote_url: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default = "default_true")]
+    pub auto_sync: bool,
+}
+
+impl Default for GitSyncConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            folder_path: None,
+            remote_url: None,
+            branch: None,
+            auto_sync: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum GitSyncMigrationMode {
+    MigrateToFolder,
+    ImportFromFolder,
+    CloneRepo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct GitRepoStatus {
+    pub git_available: bool,
+    #[serde(default)]
+    pub git_version: Option<String>,
+    pub is_git_repo: bool,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub remote_url: Option<String>,
+    #[serde(default)]
+    pub changed_files: usize,
+    #[serde(default)]
+    pub ahead: usize,
+    #[serde(default)]
+    pub behind: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderInspection {
+    pub exists: bool,
+    pub is_empty: bool,
+    pub has_riftql_workspace: bool,
+    pub collection_count: usize,
+    pub environment_count: usize,
+    pub git: GitRepoStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitSyncStatus {
+    pub enabled: bool,
+    #[serde(default)]
+    pub folder_path: Option<String>,
+    #[serde(default)]
+    pub remote_url: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
+    pub auto_sync: bool,
+    #[serde(default)]
+    pub last_synced_at: Option<String>,
+    #[serde(default)]
+    pub last_error: Option<String>,
+    pub git: GitRepoStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitSyncActionResult {
+    pub status: GitSyncStatus,
+    pub message: String,
+    pub workspace_reloaded: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalSecretsStore {
+    #[serde(default)]
+    pub environments: HashMap<String, HashMap<String, String>>,
+    #[serde(default)]
+    pub collections: HashMap<String, HashMap<String, String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceSnapshot {
     pub collections: Vec<CollectionRecord>,
     pub folders: Vec<FolderRecord>,

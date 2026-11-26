@@ -4,11 +4,13 @@ pub mod error;
 pub mod http;
 pub mod linux_desktop;
 pub mod models;
+pub mod sync;
 
 use tauri::Manager;
 
 use crate::db::Database;
 use crate::http::client::{InFlightRegistry, ResponseBodyCache};
+use crate::sync::GitSyncManager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -29,11 +31,20 @@ pub fn run() {
                 .path()
                 .app_data_dir()
                 .expect("failed to resolve app data directory");
+            let sync_manager = GitSyncManager::new(app_data_dir.clone());
             let database = Database::open_with_default_dir(app_data_dir)
                 .expect("failed to open RiftQL SQLite database");
+
+            if sync_manager.is_enabled() {
+                let _ = sync_manager.sync_from_disk(&database);
+            }
+
             app.manage(database);
+            app.manage(sync_manager);
             app.manage(InFlightRegistry::default());
             app.manage(ResponseBodyCache::default());
+
+            sync::spawn_watcher(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -62,6 +73,14 @@ pub fn run() {
             commands::storage::read_text_file_cmd,
             commands::storage::get_storage_info_cmd,
             commands::storage::set_data_directory_cmd,
+            commands::sync::get_git_sync_status_cmd,
+            commands::sync::inspect_git_sync_folder_cmd,
+            commands::sync::configure_git_sync_cmd,
+            commands::sync::disable_git_sync_cmd,
+            commands::sync::sync_git_workspace_now_cmd,
+            commands::sync::git_init_workspace_cmd,
+            commands::sync::git_pull_workspace_cmd,
+            commands::sync::git_commit_push_workspace_cmd,
             commands::cookies::list_cookies_cmd,
             commands::cookies::upsert_cookie_cmd,
             commands::cookies::delete_cookie_cmd,

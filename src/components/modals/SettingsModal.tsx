@@ -1,14 +1,20 @@
 import * as React from 'react';
 import {
   AlertTriangle,
+  ArrowDownToLine,
+  ArrowUpFromLine,
   Check,
   Copy,
   Database as DatabaseIcon,
   Download,
+  FolderGit2,
   FolderOpen,
+  GitBranch,
+  GitCommit,
   Keyboard,
   Minus,
   Plus,
+  RefreshCw,
   RotateCcw,
   Search,
   Settings,
@@ -54,22 +60,41 @@ import { useTabsStore } from '@/store/useTabsStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import type { ShortcutActionId, ShortcutDefinition } from '@/types/shortcuts';
 import type {
+  FolderInspection,
+  GitSyncActionResult,
+  GitSyncMigrationMode,
+  GitSyncStatus,
   SplitLayout,
   StorageInfo,
   ThemePreference,
   WorkspaceExport,
 } from '@/types/storage';
 
+export type SettingsTab = 'general' | 'network' | 'shortcuts' | 'data' | 'git-sync';
+
+function extractErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message) return err.message;
+  if (err && typeof err === 'object' && 'message' in err) {
+    return String((err as { message: unknown }).message);
+  }
+  if (typeof err === 'string' && err.trim()) return err;
+  return fallback;
+}
+
 interface SettingsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onRecordingChange?: (recording: boolean) => void;
+  initialTab?: SettingsTab;
+  onGitSyncStatusChange?: (status: GitSyncStatus) => void;
 }
 
 export function SettingsModal({
   open,
   onOpenChange,
   onRecordingChange,
+  initialTab = 'general',
+  onGitSyncStatusChange,
 }: SettingsModalProps) {
   const settings = useSettingsStore((s) => s.settings);
   const resolvedTheme = useSettingsStore((s) => s.resolvedTheme);
@@ -82,7 +107,9 @@ export function SettingsModal({
   const importWorkspace = useWorkspaceStore((s) => s.importWorkspace);
   const loadWorkspace = useWorkspaceStore((s) => s.loadWorkspace);
   const loadSessionTabs = useTabsStore((s) => s.loadSessionTabs);
+  const syncTabsWithWorkspace = useTabsStore((s) => s.syncTabsWithWorkspace);
 
+  const [activeTab, setActiveTab] = React.useState<SettingsTab>(initialTab);
   const [shortcutFilter, setShortcutFilter] = React.useState('');
   const [recordingId, setRecordingId] = React.useState<ShortcutActionId | null>(null);
   const [conflictInfo, setConflictInfo] = React.useState<{
@@ -95,11 +122,66 @@ export function SettingsModal({
   const [migrateOnMove, setMigrateOnMove] = React.useState(true);
   const [changingDir, setChangingDir] = React.useState(false);
   const [copiedPath, setCopiedPath] = React.useState(false);
+
+  const [gitSyncStatus, setGitSyncStatus] = React.useState<GitSyncStatus | null>(null);
+  const [syncFolderInput, setSyncFolderInput] = React.useState('');
+  const [syncRemoteInput, setSyncRemoteInput] = React.useState('');
+  const [syncBranchInput, setSyncBranchInput] = React.useState('');
+  const [syncAutoSync, setSyncAutoSync] = React.useState(true);
+  const [migrationMode, setMigrationMode] =
+    React.useState<GitSyncMigrationMode>('migrate-to-folder');
+  const [initGitOnEnable, setInitGitOnEnable] = React.useState(true);
+  const [folderInspection, setFolderInspection] = React.useState<FolderInspection | null>(null);
+  const [commitMessage, setCommitMessage] = React.useState('chore(riftql): sync workspace');
+  const [gitSyncBusy, setGitSyncBusy] = React.useState(false);
+  const [gitSyncMessage, setGitSyncMessage] = React.useState<string | null>(null);
+  const [gitSyncError, setGitSyncError] = React.useState<string | null>(null);
   const importInputRef = React.useRef<HTMLInputElement | null>(null);
 
   React.useEffect(() => {
     onRecordingChange?.(recordingId !== null);
   }, [recordingId, onRecordingChange]);
+
+  const inspectSyncFolder = React.useCallback(async (path: string) => {
+    const trimmed = path.trim();
+    if (!trimmed || !hasNativeFileBridge()) {
+      setFolderInspection(null);
+      return null;
+    }
+    try {
+      const inspected = await invokeCommand<FolderInspection>('inspect_git_sync_folder_cmd', {
+        folderPath: trimmed,
+      });
+      if (inspected && typeof inspected.exists === 'boolean') {
+        setFolderInspection(inspected);
+        if (inspected.hasRiftqlWorkspace) {
+          setMigrationMode('import-from-folder');
+        }
+        return inspected;
+      }
+    } catch {
+      setFolderInspection(null);
+    }
+    return null;
+  }, []);
+
+  const applyGitSyncStatus = React.useCallback(
+    (status: GitSyncStatus) => {
+      setGitSyncStatus(status);
+      onGitSyncStatusChange?.(status);
+      if (status.folderPath !== undefined) {
+        setSyncFolderInput(status.folderPath ?? '');
+      }
+      if (status.remoteUrl !== undefined) {
+        setSyncRemoteInput(status.remoteUrl ?? '');
+      }
+      if (status.branch !== undefined) {
+        setSyncBranchInput(status.branch ?? '');
+      }
+      setSyncAutoSync(status.autoSync);
+    },
+    [onGitSyncStatusChange],
+  );
 
   React.useEffect(() => {
     if (!open) {
@@ -107,19 +189,36 @@ export function SettingsModal({
       setConflictInfo(null);
       setDataMessage(null);
       setCopiedPath(false);
+      setGitSyncMessage(null);
+      setGitSyncError(null);
       return;
     }
+
+    setActiveTab(initialTab);
 
     if (hasNativeFileBridge()) {
       void invokeCommand<StorageInfo>('get_storage_info_cmd')
         .then((info) => {
-          if (info) setStorageInfo(info);
+          if (info && typeof info.currentDataDir === 'string') setStorageInfo(info);
         })
         .catch(() => {
           // Ignore when command mock doesn't return StorageInfo
         });
+
+      void invokeCommand<GitSyncStatus>('get_git_sync_status_cmd')
+        .then((status) => {
+          if (status && typeof status.enabled === 'boolean') {
+            applyGitSyncStatus(status);
+            if (status.folderPath) {
+              void inspectSyncFolder(status.folderPath);
+            }
+          }
+        })
+        .catch(() => {
+          // Ignore when command mock doesn't implement get_git_sync_status_cmd
+        });
     }
-  }, [open]);
+  }, [open, initialTab, applyGitSyncStatus, inspectSyncFolder]);
 
   const effectiveShortcuts = React.useMemo(
     () => getEffectiveShortcuts(settings.customShortcuts),
@@ -266,6 +365,177 @@ export function SettingsModal({
     }
   };
 
+  const handleSyncActionResult = async (result: GitSyncActionResult) => {
+    applyGitSyncStatus(result.status);
+    setGitSyncError(null);
+    setGitSyncMessage(result.message);
+    if (result.workspaceReloaded) {
+      await loadWorkspace();
+      syncTabsWithWorkspace(useWorkspaceStore.getState().savedRequests);
+    }
+    if (result.status.folderPath) {
+      await inspectSyncFolder(result.status.folderPath);
+    }
+  };
+
+  const handlePickSyncFolder = async () => {
+    const picked = await pickOpenDirectory({
+      title: 'Select Git-Friendly Workspace Folder',
+      defaultPath: syncFolderInput || undefined,
+    });
+    if (!picked) return;
+    setSyncFolderInput(picked);
+    setGitSyncError(null);
+    const inspected = await inspectSyncFolder(picked);
+    if (inspected) {
+      if (inspected.git.remoteUrl && !syncRemoteInput.trim()) {
+        setSyncRemoteInput(inspected.git.remoteUrl);
+      }
+      if (inspected.git.branch && !syncBranchInput.trim()) {
+        setSyncBranchInput(inspected.git.branch);
+      }
+      if (!inspected.hasRiftqlWorkspace && inspected.isEmpty && syncRemoteInput.trim()) {
+        setMigrationMode('clone-repo');
+      } else if (inspected.hasRiftqlWorkspace) {
+        setMigrationMode('import-from-folder');
+      } else {
+        setMigrationMode('migrate-to-folder');
+      }
+    }
+  };
+
+  const handleConfigureAndEnableSync = async () => {
+    const folderPath = syncFolderInput.trim();
+    if (!folderPath) {
+      setGitSyncError('Select or enter a target folder path first.');
+      return;
+    }
+    setGitSyncBusy(true);
+    setGitSyncError(null);
+    setGitSyncMessage(null);
+    try {
+      const result = await invokeCommand<GitSyncActionResult>('configure_git_sync_cmd', {
+        folderPath,
+        remoteUrl: syncRemoteInput.trim() || null,
+        branch: syncBranchInput.trim() || null,
+        migrationMode,
+        initGit: initGitOnEnable,
+        autoSync: syncAutoSync,
+      });
+      await handleSyncActionResult(result);
+    } catch (err) {
+      setGitSyncError(extractErrorMessage(err, 'Failed to enable Git workspace sync.'));
+    } finally {
+      setGitSyncBusy(false);
+    }
+  };
+
+  const handleToggleGitSync = async (nextEnabled: boolean) => {
+    if (!nextEnabled) {
+      setGitSyncBusy(true);
+      setGitSyncError(null);
+      try {
+        const updated = await invokeCommand<GitSyncStatus>('disable_git_sync_cmd');
+        applyGitSyncStatus(updated);
+        setGitSyncMessage('Git workspace sync disabled. RiftQL continues using local SQLite.');
+      } catch (err) {
+        setGitSyncError(extractErrorMessage(err, 'Failed to disable Git workspace sync.'));
+      } finally {
+        setGitSyncBusy(false);
+      }
+      return;
+    }
+
+    if (!syncFolderInput.trim()) {
+      setGitSyncError('Choose a local folder below first, then enable Git workspace sync.');
+      return;
+    }
+    await handleConfigureAndEnableSync();
+  };
+
+  const handleManualSync = async (direction: 'to-disk' | 'from-disk') => {
+    setGitSyncBusy(true);
+    setGitSyncError(null);
+    setGitSyncMessage(null);
+    try {
+      const result = await invokeCommand<GitSyncActionResult>('sync_git_workspace_now_cmd', {
+        direction,
+      });
+      await handleSyncActionResult(result);
+    } catch (err) {
+      setGitSyncError(extractErrorMessage(err, 'Manual workspace sync failed.'));
+    } finally {
+      setGitSyncBusy(false);
+    }
+  };
+
+  const handleGitInitRepo = async () => {
+    setGitSyncBusy(true);
+    setGitSyncError(null);
+    setGitSyncMessage(null);
+    try {
+      const result = await invokeCommand<GitSyncActionResult>('git_init_workspace_cmd', {
+        folderPath: syncFolderInput.trim() || null,
+        remoteUrl: syncRemoteInput.trim() || null,
+        branch: syncBranchInput.trim() || null,
+      });
+      await handleSyncActionResult(result);
+    } catch (err) {
+      setGitSyncError(extractErrorMessage(err, 'Failed to initialize Git repository.'));
+    } finally {
+      setGitSyncBusy(false);
+    }
+  };
+
+  const handleGitPull = async () => {
+    setGitSyncBusy(true);
+    setGitSyncError(null);
+    setGitSyncMessage(null);
+    try {
+      const result = await invokeCommand<GitSyncActionResult>('git_pull_workspace_cmd');
+      await handleSyncActionResult(result);
+    } catch (err) {
+      setGitSyncError(extractErrorMessage(err, 'Git pull failed.'));
+    } finally {
+      setGitSyncBusy(false);
+    }
+  };
+
+  const handleGitCommitPush = async (push: boolean) => {
+    setGitSyncBusy(true);
+    setGitSyncError(null);
+    setGitSyncMessage(null);
+    try {
+      const result = await invokeCommand<GitSyncActionResult>('git_commit_push_workspace_cmd', {
+        message: commitMessage.trim() || 'chore(riftql): sync workspace',
+        push,
+      });
+      await handleSyncActionResult(result);
+    } catch (err) {
+      setGitSyncError(extractErrorMessage(err, push ? 'Git commit & push failed.' : 'Git commit failed.'));
+    } finally {
+      setGitSyncBusy(false);
+    }
+  };
+
+  const handleRefreshGitStatus = async () => {
+    if (!hasNativeFileBridge()) return;
+    setGitSyncBusy(true);
+    try {
+      const status = await invokeCommand<GitSyncStatus>('get_git_sync_status_cmd');
+      if (status && typeof status.enabled === 'boolean') {
+        applyGitSyncStatus(status);
+      }
+      if (syncFolderInput.trim()) {
+        await inspectSyncFolder(syncFolderInput);
+      }
+    } catch (err) {
+      setGitSyncError(extractErrorMessage(err, 'Failed to refresh Git status.'));
+    } finally {
+      setGitSyncBusy(false);
+    }
+  };
+
   const filteredShortcuts = DEFAULT_SHORTCUTS.filter((def) => {
     const q = shortcutFilter.trim().toLowerCase();
     if (!q) return true;
@@ -289,7 +559,11 @@ export function SettingsModal({
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="general" className="flex flex-col">
+        <Tabs
+          value={activeTab}
+          onValueChange={(value) => setActiveTab(value as SettingsTab)}
+          className="flex flex-col"
+        >
           <TabsList>
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="network">Network</TabsTrigger>
@@ -298,6 +572,10 @@ export function SettingsModal({
               <span>Shortcuts</span>
             </TabsTrigger>
             <TabsTrigger value="data">Data</TabsTrigger>
+            <TabsTrigger value="git-sync">
+              <GitBranch className="h-3.5 w-3.5" />
+              <span>Git Sync</span>
+            </TabsTrigger>
           </TabsList>
 
           {/* General Tab */}
@@ -844,6 +1122,425 @@ export function SettingsModal({
             </div>
             {dataMessage && (
               <div className="text-xs text-[var(--accent)]">{dataMessage}</div>
+            )}
+          </TabsContent>
+
+          {/* Git Sync Tab */}
+          <TabsContent
+            value="git-sync"
+            className="flex max-h-[62vh] flex-col gap-3 overflow-y-auto pt-3 pr-1 rift-scroll"
+          >
+            {!hasNativeFileBridge() ? (
+              <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3 text-xs text-[var(--text-secondary)]">
+                Git-friendly filesystem synchronization requires the RiftQL desktop runtime.
+              </div>
+            ) : (
+              <>
+                {/* Master Enable/Disable Toggle */}
+                <div className="flex items-center justify-between gap-3 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-2.5">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)]">
+                      <FolderGit2 className="h-3.5 w-3.5 text-[var(--accent)]" />
+                      <span>Git-Friendly Workspace Sync</span>
+                      <Badge variant={gitSyncStatus?.enabled ? 'accent' : 'default'}>
+                        {gitSyncStatus?.enabled ? 'Enabled' : 'SQLite Only'}
+                      </Badge>
+                    </div>
+                    <p className="mt-0.5 text-[0.75rem] text-[var(--text-secondary)]">
+                      Store collections, nested folders, requests &amp; non-secret environments as
+                      clean Git-diffable JSON files. Secret values remain local-only.
+                    </p>
+                  </div>
+                  <Switch
+                    aria-label="Enable Git-friendly workspace sync"
+                    disabled={gitSyncBusy}
+                    checked={Boolean(gitSyncStatus?.enabled)}
+                    onCheckedChange={(checked) => void handleToggleGitSync(checked)}
+                  />
+                </div>
+
+                {/* Folder & Git Repository Selection */}
+                <div className="flex flex-col gap-2.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3">
+                  <div className="flex flex-col gap-1">
+                    <label
+                      htmlFor="git-sync-folder-input"
+                      className="text-xs font-medium text-[var(--text-primary)]"
+                    >
+                      Workspace Folder Path
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="git-sync-folder-input"
+                        value={syncFolderInput}
+                        aria-label="Git sync workspace folder"
+                        placeholder="/path/to/api-workspace"
+                        onChange={(e) => {
+                          setSyncFolderInput(e.target.value);
+                          setGitSyncError(null);
+                        }}
+                        onBlur={() => void inspectSyncFolder(syncFolderInput)}
+                        className="flex-1 font-mono-code text-xs"
+                      />
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="secondary"
+                        disabled={gitSyncBusy}
+                        onClick={() => void handlePickSyncFolder()}
+                      >
+                        <FolderOpen className="h-3.5 w-3.5" />
+                        <span>Browse…</span>
+                      </Button>
+                    </div>
+                  </div>
+
+                  {folderInspection && (
+                    <div className="flex flex-wrap items-center gap-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-[0.75rem] text-[var(--text-secondary)]">
+                      {folderInspection.hasRiftqlWorkspace ? (
+                        <span className="text-[var(--text-primary)]">
+                          Detected RiftQL workspace ({folderInspection.collectionCount}{' '}
+                          {folderInspection.collectionCount === 1 ? 'collection' : 'collections'},{' '}
+                          {folderInspection.environmentCount}{' '}
+                          {folderInspection.environmentCount === 1 ? 'env' : 'envs'})
+                        </span>
+                      ) : folderInspection.isEmpty ? (
+                        <span>Folder is empty and ready for migration or Git clone.</span>
+                      ) : (
+                        <span>Existing folder without RiftQL workspace manifest yet.</span>
+                      )}
+                      {folderInspection.git.isGitRepo && (
+                        <Badge variant="default" className="ml-auto font-mono-code">
+                          git: {folderInspection.git.branch ?? 'HEAD'}
+                        </Badge>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <div className="flex flex-col gap-1 sm:col-span-2">
+                      <label
+                        htmlFor="git-sync-remote-input"
+                        className="text-[0.75rem] font-medium text-[var(--text-secondary)]"
+                      >
+                        Git Repository URL (optional)
+                      </label>
+                      <Input
+                        id="git-sync-remote-input"
+                        value={syncRemoteInput}
+                        aria-label="Git repository URL"
+                        placeholder="https://github.com/org/api-specs.git"
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setSyncRemoteInput(next);
+                          if (
+                            next.trim() &&
+                            folderInspection &&
+                            folderInspection.isEmpty &&
+                            !folderInspection.hasRiftqlWorkspace
+                          ) {
+                            setMigrationMode('clone-repo');
+                          }
+                        }}
+                        className="font-mono-code text-xs"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label
+                        htmlFor="git-sync-branch-input"
+                        className="text-[0.75rem] font-medium text-[var(--text-secondary)]"
+                      >
+                        Branch (optional)
+                      </label>
+                      <Input
+                        id="git-sync-branch-input"
+                        value={syncBranchInput}
+                        aria-label="Git branch"
+                        placeholder="main"
+                        onChange={(e) => setSyncBranchInput(e.target.value)}
+                        className="font-mono-code text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <label className="flex cursor-pointer items-center justify-between gap-2 border-t border-[var(--border-subtle)] pt-2">
+                    <div>
+                      <div className="text-xs font-medium text-[var(--text-primary)]">
+                        Auto-Sync Changes to Folder
+                      </div>
+                      <div className="text-[0.75rem] text-[var(--text-secondary)]">
+                        Write JSON updates automatically when requests, folders, or environments change.
+                      </div>
+                    </div>
+                    <Switch
+                      aria-label="Auto-sync workspace changes to disk"
+                      checked={syncAutoSync}
+                      onCheckedChange={setSyncAutoSync}
+                    />
+                  </label>
+                </div>
+
+                {/* Migration & Initialization Section */}
+                <div className="flex flex-col gap-2.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3">
+                  <div className="text-xs font-semibold text-[var(--text-primary)]">
+                    Migration &amp; Activation
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+                    {(
+                      [
+                        {
+                          id: 'migrate-to-folder',
+                          title: 'Migrate SQLite → Folder',
+                          desc: 'Export current workspace into this folder',
+                        },
+                        {
+                          id: 'import-from-folder',
+                          title: 'Import Folder → SQLite',
+                          desc: 'Load existing RiftQL files into SQLite',
+                        },
+                        {
+                          id: 'clone-repo',
+                          title: 'Clone Git Repo',
+                          desc: 'Clone remote URL into empty folder',
+                        },
+                      ] as Array<{
+                        id: GitSyncMigrationMode;
+                        title: string;
+                        desc: string;
+                      }>
+                    ).map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setMigrationMode(opt.id)}
+                        className={cn(
+                          'flex cursor-pointer flex-col gap-0.5 rounded-md border px-2.5 py-2 text-left transition-colors',
+                          migrationMode === opt.id
+                            ? 'border-[var(--accent)] bg-[var(--accent-muted)] text-[var(--text-primary)]'
+                            : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
+                        )}
+                      >
+                        <span className="text-xs font-medium">{opt.title}</span>
+                        <span className="text-[0.6875rem] opacity-80">{opt.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {migrationMode !== 'clone-repo' && (
+                    <label className="flex cursor-pointer items-center gap-2 text-[0.75rem] text-[var(--text-secondary)]">
+                      <input
+                        type="checkbox"
+                        checked={initGitOnEnable}
+                        onChange={(e) => setInitGitOnEnable(e.target.checked)}
+                        className="h-3.5 w-3.5 accent-[var(--accent)]"
+                      />
+                      <span>
+                        Initialize Git repository (<code className="font-mono-code">git init</code>)
+                        if folder is not a repository yet
+                      </span>
+                    </label>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="default"
+                      disabled={gitSyncBusy || !syncFolderInput.trim()}
+                      onClick={() => void handleConfigureAndEnableSync()}
+                    >
+                      {migrationMode === 'migrate-to-folder'
+                        ? gitSyncStatus?.enabled
+                          ? 'Migrate & Update Sync Folder'
+                          : 'Migrate SQLite → Folder & Enable'
+                        : migrationMode === 'import-from-folder'
+                          ? gitSyncStatus?.enabled
+                            ? 'Import Folder & Update Sync'
+                            : 'Import Folder → SQLite & Enable'
+                          : 'Clone Repo & Enable Sync'}
+                    </Button>
+
+                    {gitSyncStatus?.enabled && (
+                      <>
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="secondary"
+                          disabled={gitSyncBusy}
+                          onClick={() => void handleManualSync('to-disk')}
+                        >
+                          <ArrowUpFromLine className="h-3 w-3" />
+                          <span>Export SQLite → Folder</span>
+                        </Button>
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="secondary"
+                          disabled={gitSyncBusy}
+                          onClick={() => void handleManualSync('from-disk')}
+                        >
+                          <ArrowDownToLine className="h-3 w-3" />
+                          <span>Reload Folder → SQLite</span>
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Git Repository Actions & Status */}
+                {(gitSyncStatus?.enabled ||
+                  folderInspection?.git.isGitRepo ||
+                  gitSyncStatus?.git.isGitRepo) && (
+                  <div className="flex flex-col gap-2.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--text-primary)]">
+                        <GitBranch className="h-3.5 w-3.5 text-[var(--accent)]" />
+                        <span>Git Repository</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {(() => {
+                          const repo = folderInspection?.git ?? gitSyncStatus?.git;
+                          if (!repo) return null;
+                          if (!repo.gitAvailable) {
+                            return <Badge>Git CLI not found (folder-only sync)</Badge>;
+                          }
+                          if (!repo.isGitRepo) {
+                            return <Badge>Not initialized</Badge>;
+                          }
+                          return (
+                            <>
+                              <Badge variant="accent" className="font-mono-code">
+                                {repo.branch ?? 'HEAD'}
+                              </Badge>
+                              <Badge className="tabular-nums">
+                                {repo.changedFiles} pending
+                              </Badge>
+                              {(repo.ahead > 0 || repo.behind > 0) && (
+                                <Badge className="font-mono-code tabular-nums">
+                                  ↑{repo.ahead} ↓{repo.behind}
+                                </Badge>
+                              )}
+                            </>
+                          );
+                        })()}
+                        <ActionTooltip label="Refresh Git & Sync Status">
+                          <Button
+                            type="button"
+                            size="icon-sm"
+                            variant="ghost"
+                            aria-label="Refresh Git status"
+                            disabled={gitSyncBusy}
+                            onClick={() => void handleRefreshGitStatus()}
+                          >
+                            <RefreshCw className={cn('h-3.5 w-3.5', gitSyncBusy && 'animate-spin')} />
+                          </Button>
+                        </ActionTooltip>
+                      </div>
+                    </div>
+
+                    {(() => {
+                      const repo = folderInspection?.git ?? gitSyncStatus?.git;
+                      if (!repo?.gitAvailable) {
+                        return (
+                          <p className="text-[0.75rem] text-[var(--text-secondary)]">
+                            Install <code className="font-mono-code">git</code> and add it to PATH to
+                            commit, pull, or push directly from RiftQL. Folder file sync continues to
+                            work automatically.
+                          </p>
+                        );
+                      }
+                      if (!repo.isGitRepo) {
+                        return (
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[0.75rem] text-[var(--text-secondary)]">
+                              This folder is currently synced locally without Git version control.
+                            </span>
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="secondary"
+                              disabled={gitSyncBusy || !syncFolderInput.trim()}
+                              onClick={() => void handleGitInitRepo()}
+                            >
+                              <GitBranch className="h-3 w-3" />
+                              <span>Init Git Repo</span>
+                            </Button>
+                          </div>
+                        );
+                      }
+                      const hasRemote = Boolean(repo.remoteUrl || syncRemoteInput.trim());
+                      return (
+                        <div className="flex flex-col gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="secondary"
+                              disabled={gitSyncBusy || !hasRemote}
+                              onClick={() => void handleGitPull()}
+                            >
+                              <ArrowDownToLine className="h-3 w-3" />
+                              <span>Git Pull</span>
+                            </Button>
+                            {repo.remoteUrl && (
+                              <span className="truncate font-mono-code text-[0.6875rem] text-[var(--text-secondary)]">
+                                origin: {repo.remoteUrl}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Input
+                              value={commitMessage}
+                              onChange={(e) => setCommitMessage(e.target.value)}
+                              aria-label="Git commit message"
+                              placeholder="chore(riftql): sync workspace"
+                              className="min-w-[12rem] flex-1 font-mono-code text-xs"
+                            />
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="secondary"
+                              disabled={gitSyncBusy}
+                              onClick={() => void handleGitCommitPush(false)}
+                            >
+                              <GitCommit className="h-3 w-3" />
+                              <span>Commit</span>
+                            </Button>
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="default"
+                              disabled={gitSyncBusy || !hasRemote}
+                              onClick={() => void handleGitCommitPush(true)}
+                            >
+                              <ArrowUpFromLine className="h-3 w-3" />
+                              <span>Commit &amp; Push</span>
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {gitSyncStatus?.lastSyncedAt && (
+                      <div className="text-[0.6875rem] text-[var(--text-tertiary)]">
+                        Last synced: {new Date(gitSyncStatus.lastSyncedAt).toLocaleString()}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {(gitSyncError || gitSyncStatus?.lastError) && (
+                  <div className="flex items-start gap-2 rounded-md border border-[#F87171]/40 bg-[#F87171]/10 px-3 py-2 text-xs text-[#F87171]">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>{gitSyncError ?? gitSyncStatus?.lastError}</span>
+                  </div>
+                )}
+
+                {gitSyncMessage && (
+                  <div className="text-xs text-[var(--accent)]">{gitSyncMessage}</div>
+                )}
+              </>
             )}
           </TabsContent>
         </Tabs>
