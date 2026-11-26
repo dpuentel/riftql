@@ -47,8 +47,31 @@ On **Linux AppImage** builds, RiftQL enables `enableGTKAppId` (`com.riftql.app`)
 ### Git-Friendly Workspace Sync (Optional)
 
 Enable or disable folder-based Git sync anytime in **Settings → Git Sync**:
-- **Migrate SQLite → Folder**, **Import Folder → SQLite**, or **Clone Git Repo** directly from Settings.
-- Writes deterministic JSON files (`riftql.workspace.json`, `environments/`, `collections/`) with clean diffs, automatically maintains `.gitignore` so secrets (`isSecret` values in SQLite / `.riftql.secrets.json`) never enter Git commits, auto-syncs edits, watches disk for `git pull` / branch switches, and includes built-in **Git Init / Pull / Commit & Push**.
+- **Migrate SQLite → Folder**, **Import Folder → SQLite**, or **Clone Git Repo** directly from Settings (or disable back to **SQLite Only** without data loss).
+- **Tracked JSON layout:** Writes deterministic JSON files for clean Git diffs:
+  ```text
+  <sync-folder>/
+    .gitignore
+    riftql.workspace.json
+    environments/
+      global.json
+      <env-slug>--<hash>.json
+    collections/
+      <collection-slug>--<hash>/
+        collection.json
+        requests/
+          <request-slug>--<hash>.json
+        folders/
+          <folder-slug>--<hash>/
+            folder.json
+            requests/...
+            folders/...
+  ```
+- **How secrets are stored (no `.env` file):**
+  - Any Environment or Collection variable marked as **`isSecret`** has its value stripped (`""`) inside tracked JSON files so keys/tokens are never committed to Git.
+  - Real secret values remain **local-only** in your SQLite database (`riftql.db`) and are mirrored in `<sync-folder>/.riftql.secrets.json`, which RiftQL automatically adds to `.gitignore` (alongside `*.db`, `*.db-wal`, `*.db-shm`).
+  - When pulling updates (`git pull` or external disk changes), RiftQL keeps each developer's local SQLite secret values intact automatically. *(Best practice: reference secrets via `{{api_token}}` inside Auth/Headers instead of hardcoding literal credentials in requests.)*
+- **Auto-sync & Git actions:** Automatically exports local workspace edits, watches disk every ~2 seconds for `git pull` / branch switches, and provides built-in **Git Init / Pull / Commit & Push**.
 
 ---
 
@@ -120,13 +143,25 @@ All shortcuts can be customized in **Settings → Shortcuts** (`Ctrl+,` / `⌘,`
 
 - **CI ([.github/workflows/ci.yml](./.github/workflows/ci.yml)):** Runs on every push/PR to `main` (`pnpm typecheck`, `pnpm test`, `pnpm build`, and `cargo test` on `ubuntu-22.04` and `windows-latest`).
 - **Release Binaries ([.github/workflows/release.yml](./.github/workflows/release.yml)):** Compiles native installers for **Windows (`x64`: `.msi` / `.exe`)**, **Linux (`x64`: `.deb` / `.rpm` / `.AppImage`)**, and **macOS (`arm64` & `x64`: `.dmg`)**:
-  - **Automated Release CLI (`pnpm release`):** Runs `pnpm typecheck` + `pnpm test`, updates `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `src-tauri/Cargo.lock`, creates commit + annotated tag `v<version>`, and pushes to `origin` to trigger the Draft Release build:
+  - **Automated Release CLI (`pnpm release`):** Verifies clean git state + `pnpm typecheck` + `pnpm test`, bumps the version across `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `src-tauri/Cargo.lock`, creates `chore(release): v<version>` + annotated tag `v<version>`, and pushes to `origin` to trigger the Draft Release build:
     ```bash
-    pnpm release patch        # 0.2.0 -> 0.2.1 (or minor / major / 0.3.0)
-    pnpm release minor --dry-run
-    pnpm release 0.3.0 --no-push
+    # Version targets (examples from v0.2.0)
+    pnpm release patch              # 0.2.0 -> 0.2.1 (commits, tags & pushes)
+    pnpm release minor              # 0.2.0 -> 0.3.0
+    pnpm release major              # 0.2.0 -> 1.0.0
+    pnpm release 0.3.0              # explicit version (or v0.3.0-rc.1)
+
+    # Helpful flags
+    pnpm release minor --dry-run    # preview changes & git commands without editing anything
+    pnpm release 0.3.0 --no-push    # commit & tag locally; push manually later
+    pnpm release patch --skip-checks # skip pnpm typecheck & pnpm test
+    pnpm release patch --allow-dirty # allow uncommitted changes in working tree
+    pnpm release --help             # show usage & current version
+
+    # Once GitHub Actions finishes building, publish the Draft Release (or use GitHub UI)
+    gh release edit v0.3.0 --draft=false
     ```
-  - **Manual Build (Workflow Artifacts):** Trigger **Actions → Release Binaries → Run workflow** (`workflow_dispatch`) to compile and download binaries directly from the run artifacts without creating a release tag.
+  - **Manual Build (Workflow Artifacts):** Trigger **Actions → Release Binaries → Run workflow** (`workflow_dispatch`, or `gh workflow run release.yml`) to compile and download binaries directly from the run artifacts without creating a release tag.
 
 ---
 
