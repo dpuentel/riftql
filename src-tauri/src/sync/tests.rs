@@ -13,16 +13,16 @@ use crate::db::history::{list_history, record_history};
 use crate::db::settings::{get_app_settings, save_app_settings};
 use crate::db::Database;
 use crate::models::{
-    AppSettings, AuthConfig, EnvironmentVariable, GitSyncMigrationMode, GraphQLConfig,
-    HeaderPair, KeyValueItem, NewHistoryEntryInput, RequestBody, RequestDraft, RequestProtocol,
-    RequestSettings,
+    AppSettings, AuthConfig, EnvironmentVariable, GitCredentials, GitSyncMigrationMode,
+    GraphQLConfig, HeaderPair, KeyValueItem, NewHistoryEntryInput, RequestBody, RequestDraft,
+    RequestProtocol, RequestSettings,
 };
 use crate::sync::fs_layout::{
     compute_dir_fingerprint, has_workspace_files, inspect_folder, read_workspace_from_dir,
     write_workspace_to_dir, SECRETS_FILE_NAME, WORKSPACE_MANIFEST_FILE,
 };
 use crate::sync::git;
-use crate::sync::GitSyncManager;
+use crate::sync::{GitSyncManager, GIT_SYNC_CREDENTIALS_FILE};
 
 fn sample_rest_draft(name: &str, url: &str) -> RequestDraft {
     RequestDraft {
@@ -361,6 +361,8 @@ fn auto_sync_prunes_stale_files_and_watcher_reconciles_external_changes_safely()
             GitSyncMigrationMode::MigrateToFolder,
             false,
             true,
+            None,
+            None,
         )
         .unwrap();
     assert!(enabled.status.enabled);
@@ -479,6 +481,8 @@ fn git_sync_config_persists_across_reopen_and_disable_returns_to_sqlite_mode() {
                 GitSyncMigrationMode::MigrateToFolder,
                 false,
                 true,
+                None,
+                None,
             )
             .unwrap();
         assert!(res.status.enabled);
@@ -587,6 +591,8 @@ fn git_workflow_init_commit_push_clone_and_pull_roundtrip() {
             GitSyncMigrationMode::MigrateToFolder,
             true,
             true,
+            None,
+            None,
         )
         .unwrap();
     configure_git_identity(&ws_a);
@@ -612,6 +618,8 @@ fn git_workflow_init_commit_push_clone_and_pull_roundtrip() {
             GitSyncMigrationMode::CloneRepo,
             false,
             true,
+            None,
+            None,
         )
         .unwrap();
     assert!(clone_res_b.workspace_reloaded);
@@ -647,4 +655,77 @@ fn git_workflow_init_commit_push_clone_and_pull_roundtrip() {
         Ok(())
     })
     .unwrap();
+}
+
+#[test]
+fn git_https_credential_helper_supplies_credentials_and_persists_locally() {
+    if git::git_version().is_none() {
+        return;
+    }
+
+    let creds = GitCredentials {
+        username: "dpuente".to_string(),
+        password: "pat_$%!secret'\" value".to_string(),
+    };
+    let (resolved_user, resolved_pass) = git::test_credential_fill(
+        "https://git-php.dinalab.com/dpuente/riftql-workspace/",
+        &creds,
+    )
+    .expect("git credential fill should work with ephemeral helper");
+    assert_eq!(resolved_user, "dpuente");
+    assert_eq!(resolved_pass, "pat_$%!secret'\" value");
+
+    // Verify default username fallback ("git") for token-only auth
+    let token_only = GitCredentials {
+        username: String::new(),
+        password: "glpat-xyz".to_string(),
+    };
+    let (tok_user, tok_pass) = git::test_credential_fill(
+        "https://git-php.dinalab.com/dpuente/riftql-workspace/",
+        &token_only,
+    )
+    .expect("token-only credential fill");
+    assert_eq!(tok_user, "git");
+    assert_eq!(tok_pass, "glpat-xyz");
+
+    // Verify local credential persistence outside workspace dir and clean git remote URL
+    let temp = TempDir::new().unwrap();
+    let app_data_dir = temp.path().join("appdata");
+    let sync_dir = temp.path().join("workspace");
+    let db = Database::open_with_default_dir(app_data_dir.clone()).unwrap();
+
+    let manager = GitSyncManager::new(app_data_dir.clone());
+    let enabled = manager
+        .configure_and_enable(
+            &db,
+            sync_dir.to_string_lossy().to_string(),
+            Some("https://git-php.dinalab.com/dpuente/riftql-workspace/".to_string()),
+            Some("main".to_string()),
+            GitSyncMigrationMode::MigrateToFolder,
+            true,
+            true,
+            Some("dpuente".to_string()),
+            Some("pat-secret-token-123".to_string()),
+        )
+        .unwrap();
+    assert!(enabled.status.has_credentials);
+    assert_eq!(enabled.status.auth_username.as_deref(), Some("dpuente"));
+    assert!(app_data_dir.join(GIT_SYNC_CREDENTIALS_FILE).exists());
+    assert!(!sync_dir.join(GIT_SYNC_CREDENTIALS_FILE).exists());
+
+    // `.git/config` must NOT contain plaintext token
+    let git_config = fs::read_to_string(sync_dir.join(".git").join("config")).unwrap();
+    assert!(!git_config.contains("pat-secret-token-123"));
+
+    // Survives restart without leaking password in status
+    let reopened = GitSyncManager::new(app_data_dir.clone());
+    let status = reopened.status();
+    assert!(status.has_credentials);
+    assert_eq!(status.auth_username.as_deref(), Some("dpuente"));
+
+    // Clearing credentials removes local file cleanly
+    let cleared = reopened.save_git_credentials(None, None, true).unwrap();
+    assert!(!cleared.has_credentials);
+    assert_eq!(cleared.auth_username, None);
+    assert!(!app_data_dir.join(GIT_SYNC_CREDENTIALS_FILE).exists());
 }

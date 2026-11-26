@@ -72,6 +72,7 @@ Enable or disable folder-based Git sync anytime in **Settings → Git Sync**:
   - Real secret values remain **local-only** in your SQLite database (`riftql.db`) and are mirrored in `<sync-folder>/.riftql.secrets.json`, which RiftQL automatically adds to `.gitignore` (alongside `*.db`, `*.db-wal`, `*.db-shm`).
   - When pulling updates (`git pull` or external disk changes), RiftQL keeps each developer's local SQLite secret values intact automatically. *(Best practice: reference secrets via `{{api_token}}` inside Auth/Headers instead of hardcoding literal credentials in requests.)*
 - **Auto-sync & Git actions:** Automatically exports local workspace edits, watches disk every ~2 seconds for `git pull` / branch switches, and provides built-in **Git Init / Pull / Commit & Push**.
+- **HTTPS & SSH Authentication:** Supports private repositories via SSH URLs (`git@host:org/repo.git`) or built-in **HTTPS Authentication** (Username + Personal Access Token / Password saved locally inside `<app-data-dir>/git-sync-credentials.json` and passed ephemerally to Git without ever writing credentials into `.git/config` or the workspace folder).
 
 ---
 

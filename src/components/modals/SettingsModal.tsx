@@ -7,10 +7,13 @@ import {
   Copy,
   Database as DatabaseIcon,
   Download,
+  Eye,
+  EyeOff,
   FolderGit2,
   FolderOpen,
   GitBranch,
   GitCommit,
+  KeyRound,
   Keyboard,
   Minus,
   Plus,
@@ -133,6 +136,10 @@ export function SettingsModal({
   const [initGitOnEnable, setInitGitOnEnable] = React.useState(true);
   const [folderInspection, setFolderInspection] = React.useState<FolderInspection | null>(null);
   const [commitMessage, setCommitMessage] = React.useState('chore(riftql): sync workspace');
+  const [gitUsername, setGitUsername] = React.useState('');
+  const [gitPassword, setGitPassword] = React.useState('');
+  const [showGitPassword, setShowGitPassword] = React.useState(false);
+  const [showAuthFields, setShowAuthFields] = React.useState(false);
   const [gitSyncBusy, setGitSyncBusy] = React.useState(false);
   const [gitSyncMessage, setGitSyncMessage] = React.useState<string | null>(null);
   const [gitSyncError, setGitSyncError] = React.useState<string | null>(null);
@@ -178,6 +185,9 @@ export function SettingsModal({
       if (status.branch !== undefined) {
         setSyncBranchInput(status.branch ?? '');
       }
+      if (status.authUsername !== undefined) {
+        setGitUsername(status.authUsername ?? '');
+      }
       setSyncAutoSync(status.autoSync);
     },
     [onGitSyncStatusChange],
@@ -191,6 +201,8 @@ export function SettingsModal({
       setCopiedPath(false);
       setGitSyncMessage(null);
       setGitSyncError(null);
+      setGitPassword('');
+      setShowGitPassword(false);
       return;
     }
 
@@ -421,10 +433,43 @@ export function SettingsModal({
         migrationMode,
         initGit: initGitOnEnable,
         autoSync: syncAutoSync,
+        username: gitUsername.trim() || null,
+        password: gitPassword.trim() ? gitPassword : null,
       });
+      setGitPassword('');
       await handleSyncActionResult(result);
     } catch (err) {
       setGitSyncError(extractErrorMessage(err, 'Failed to enable Git workspace sync.'));
+    } finally {
+      setGitSyncBusy(false);
+    }
+  };
+
+  const handleSaveGitCredentials = async (clear = false) => {
+    setGitSyncBusy(true);
+    setGitSyncError(null);
+    setGitSyncMessage(null);
+    try {
+      const updated = await invokeCommand<GitSyncStatus>('save_git_credentials_cmd', {
+        username: clear ? null : gitUsername.trim() || null,
+        password: clear ? null : gitPassword.trim() ? gitPassword : null,
+        clear,
+      });
+      if (clear) {
+        setGitUsername('');
+      }
+      setGitPassword('');
+      applyGitSyncStatus(updated);
+      setGitSyncMessage(
+        clear ? 'Cleared saved Git HTTPS credentials.' : 'Saved Git HTTPS credentials locally.',
+      );
+    } catch (err) {
+      setGitSyncError(
+        extractErrorMessage(
+          err,
+          clear ? 'Failed to clear Git credentials.' : 'Failed to save Git credentials.',
+        ),
+      );
     } finally {
       setGitSyncBusy(false);
     }
@@ -1261,6 +1306,108 @@ export function SettingsModal({
                       />
                     </div>
                   </div>
+
+                  {syncRemoteInput.trim().toLowerCase().startsWith('http') ||
+                  gitSyncStatus?.hasCredentials ||
+                  showAuthFields ? (
+                    <div className="flex flex-col gap-2 rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 text-[0.75rem] font-medium text-[var(--text-primary)]">
+                          <KeyRound className="h-3.5 w-3.5 text-[var(--accent)]" />
+                          <span>HTTPS Authentication (Optional)</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {gitSyncStatus?.hasCredentials && (
+                            <>
+                              <Badge variant="accent">Saved locally</Badge>
+                              <Button
+                                type="button"
+                                size="xs"
+                                variant="ghost"
+                                disabled={gitSyncBusy}
+                                onClick={() => void handleSaveGitCredentials(true)}
+                              >
+                                Clear Credentials
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <Input
+                          value={gitUsername}
+                          aria-label="Git HTTPS username"
+                          placeholder="Username (or git / oauth2)"
+                          onChange={(e) => setGitUsername(e.target.value)}
+                          className="font-mono-code text-xs"
+                        />
+                        <div className="flex items-center gap-1">
+                          <Input
+                            type={showGitPassword ? 'text' : 'password'}
+                            value={gitPassword}
+                            aria-label="Git HTTPS password or token"
+                            placeholder={
+                              gitSyncStatus?.hasCredentials
+                                ? '•••••••• (saved — leave blank to keep)'
+                                : 'Personal Access Token or Password'
+                            }
+                            onChange={(e) => setGitPassword(e.target.value)}
+                            className="flex-1 font-mono-code text-xs"
+                          />
+                          <ActionTooltip
+                            label={showGitPassword ? 'Hide token / password' : 'Show token / password'}
+                          >
+                            <Button
+                              type="button"
+                              size="icon-sm"
+                              variant="ghost"
+                              aria-label={
+                                showGitPassword ? 'Hide Git password' : 'Show Git password'
+                              }
+                              onClick={() => setShowGitPassword((v) => !v)}
+                            >
+                              {showGitPassword ? (
+                                <EyeOff className="h-3.5 w-3.5" />
+                              ) : (
+                                <Eye className="h-3.5 w-3.5" />
+                              )}
+                            </Button>
+                          </ActionTooltip>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-[0.6875rem] text-[var(--text-secondary)]">
+                        <span>
+                          Stored locally in RiftQL app data (never inside{' '}
+                          <code className="font-mono-code">.git/config</code> or workspace JSON). SSH
+                          URLs (<code className="font-mono-code">git@...</code>) work without this.
+                        </span>
+                        {(gitPassword.trim() || gitSyncStatus?.hasCredentials) && (
+                          <Button
+                            type="button"
+                            size="xs"
+                            variant="secondary"
+                            disabled={gitSyncBusy || (!gitPassword.trim() && !gitSyncStatus?.hasCredentials)}
+                            onClick={() => void handleSaveGitCredentials(false)}
+                          >
+                            Save Credentials
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between text-[0.6875rem] text-[var(--text-secondary)]">
+                      <span>Private HTTPS repositories need a username &amp; token/password.</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowAuthFields(true)}
+                        className="cursor-pointer font-medium text-[var(--accent)] hover:underline"
+                      >
+                        HTTPS credentials…
+                      </button>
+                    </div>
+                  )}
 
                   <label className="flex cursor-pointer items-center justify-between gap-2 border-t border-[var(--border-subtle)] pt-2">
                     <div>

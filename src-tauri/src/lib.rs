@@ -76,6 +76,7 @@ pub fn run() {
             commands::sync::get_git_sync_status_cmd,
             commands::sync::inspect_git_sync_folder_cmd,
             commands::sync::configure_git_sync_cmd,
+            commands::sync::save_git_credentials_cmd,
             commands::sync::disable_git_sync_cmd,
             commands::sync::sync_git_workspace_now_cmd,
             commands::sync::git_init_workspace_cmd,

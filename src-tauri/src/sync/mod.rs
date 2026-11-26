@@ -16,16 +16,18 @@ use crate::db::environments::reconcile_workspace_from_disk;
 use crate::db::Database;
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    FolderInspection, GitRepoStatus, GitSyncActionResult, GitSyncConfig, GitSyncMigrationMode,
-    GitSyncStatus,
+    FolderInspection, GitCredentials, GitRepoStatus, GitSyncActionResult, GitSyncConfig,
+    GitSyncMigrationMode, GitSyncStatus,
 };
 
 pub const GIT_SYNC_CONFIG_FILE: &str = "git-sync-config.json";
+pub const GIT_SYNC_CREDENTIALS_FILE: &str = "git-sync-credentials.json";
 pub const GIT_SYNC_UPDATED_EVENT: &str = "riftql://git-sync-updated";
 
 #[derive(Debug, Default)]
 struct GitSyncInner {
     config: GitSyncConfig,
+    credentials: Option<GitCredentials>,
     last_fingerprint: Option<u64>,
     last_error_fingerprint: Option<u64>,
     last_synced_at: Option<String>,
@@ -54,10 +56,68 @@ fn save_config_to_dir(config_dir: &Path, config: &GitSyncConfig) -> AppResult<()
     Ok(())
 }
 
+fn load_credentials_from_dir(config_dir: &Path) -> Option<GitCredentials> {
+    let path = config_dir.join(GIT_SYNC_CREDENTIALS_FILE);
+    let raw = fs::read_to_string(&path).ok()?;
+    let parsed = serde_json::from_str::<GitCredentials>(&raw).ok()?;
+    if parsed.password.is_empty() {
+        None
+    } else {
+        Some(parsed)
+    }
+}
+
+fn save_credentials_to_dir(
+    config_dir: &Path,
+    creds: Option<&GitCredentials>,
+) -> AppResult<()> {
+    let path = config_dir.join(GIT_SYNC_CREDENTIALS_FILE);
+    match creds.filter(|c| !c.password.is_empty()) {
+        Some(c) => {
+            fs::create_dir_all(config_dir)?;
+            let mut json = serde_json::to_string_pretty(c)?;
+            json.push('\n');
+            fs::write(&path, json.as_bytes())?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+            }
+        }
+        None => {
+            if path.exists() {
+                fs::remove_file(&path)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn clean_opt(value: Option<String>) -> Option<String> {
     value
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
+}
+
+fn resolve_credentials(
+    existing: Option<&GitCredentials>,
+    username: Option<String>,
+    password: Option<String>,
+) -> Option<GitCredentials> {
+    let clean_user = clean_opt(username);
+    let clean_pass = password.filter(|p| !p.is_empty());
+
+    if let Some(pw) = clean_pass {
+        return Some(GitCredentials {
+            username: clean_user.unwrap_or_default(),
+            password: pw,
+        });
+    }
+
+    existing.map(|e| GitCredentials {
+        username: clean_user.unwrap_or_else(|| e.username.clone()),
+        password: e.password.clone(),
+    })
 }
 
 fn build_status(inner: &GitSyncInner) -> GitSyncStatus {
@@ -69,6 +129,16 @@ fn build_status(inner: &GitSyncInner) -> GitSyncStatus {
             ..GitRepoStatus::default()
         },
     };
+
+    let has_credentials = inner
+        .credentials
+        .as_ref()
+        .is_some_and(|c| !c.password.is_empty());
+    let auth_username = inner
+        .credentials
+        .as_ref()
+        .map(|c| c.username.clone())
+        .filter(|u| !u.is_empty());
 
     GitSyncStatus {
         enabled: inner.config.enabled,
@@ -84,6 +154,8 @@ fn build_status(inner: &GitSyncInner) -> GitSyncStatus {
             .clone()
             .or_else(|| git.branch.clone()),
         auto_sync: inner.config.auto_sync,
+        auth_username,
+        has_credentials,
         last_synced_at: inner.last_synced_at.clone(),
         last_error: inner.last_error.clone(),
         git,
@@ -93,10 +165,12 @@ fn build_status(inner: &GitSyncInner) -> GitSyncStatus {
 impl GitSyncManager {
     pub fn new(config_dir: PathBuf) -> Self {
         let config = load_config_from_dir(&config_dir);
+        let credentials = load_credentials_from_dir(&config_dir);
         Self {
             config_dir,
             inner: Mutex::new(GitSyncInner {
                 config,
+                credentials,
                 ..GitSyncInner::default()
             }),
         }
@@ -135,6 +209,8 @@ impl GitSyncManager {
         migration_mode: GitSyncMigrationMode,
         init_git: bool,
         auto_sync: bool,
+        username: Option<String>,
+        password: Option<String>,
     ) -> AppResult<GitSyncActionResult> {
         let trimmed_folder = folder_path.trim().to_string();
         if trimmed_folder.is_empty() {
@@ -147,6 +223,7 @@ impl GitSyncManager {
         let clean_branch = clean_opt(branch);
 
         let mut guard = self.inner.lock().expect("git sync mutex poisoned");
+        let effective_creds = resolve_credentials(guard.credentials.as_ref(), username, password);
         let mut workspace_reloaded = false;
         let message: String;
 
@@ -157,7 +234,12 @@ impl GitSyncManager {
                         "A Git repository URL is required to clone".to_string(),
                     )
                 })?;
-                git::clone_repo(url, &target_dir, clean_branch.as_deref())?;
+                git::clone_repo(
+                    url,
+                    &target_dir,
+                    clean_branch.as_deref(),
+                    effective_creds.as_ref(),
+                )?;
                 if fs_layout::has_workspace_files(&target_dir) {
                     let (export, secrets) = fs_layout::read_workspace_from_dir(&target_dir)?;
                     db.with_conn(|conn| reconcile_workspace_from_disk(conn, export, &secrets))?;
@@ -221,18 +303,45 @@ impl GitSyncManager {
             branch: clean_branch.or(repo.branch),
             auto_sync,
         };
+        guard.credentials = effective_creds;
         guard.last_fingerprint = Some(fp);
         guard.last_error_fingerprint = None;
         guard.last_synced_at = Some(Utc::now().to_rfc3339());
         guard.last_error = None;
 
         save_config_to_dir(&self.config_dir, &guard.config)?;
+        save_credentials_to_dir(&self.config_dir, guard.credentials.as_ref())?;
 
         Ok(GitSyncActionResult {
             status: build_status(&guard),
             message,
             workspace_reloaded,
         })
+    }
+
+    pub fn save_git_credentials(
+        &self,
+        username: Option<String>,
+        password: Option<String>,
+        clear: bool,
+    ) -> AppResult<GitSyncStatus> {
+        let mut guard = self.inner.lock().expect("git sync mutex poisoned");
+        if clear {
+            guard.credentials = None;
+            save_credentials_to_dir(&self.config_dir, None)?;
+            return Ok(build_status(&guard));
+        }
+
+        let resolved = resolve_credentials(guard.credentials.as_ref(), username, password)
+            .ok_or_else(|| {
+                AppError::Validation(
+                    "Enter a Personal Access Token or Password to save HTTPS credentials."
+                        .to_string(),
+                )
+            })?;
+        guard.credentials = Some(resolved);
+        save_credentials_to_dir(&self.config_dir, guard.credentials.as_ref())?;
+        Ok(build_status(&guard))
     }
 
     pub fn disable(&self) -> AppResult<GitSyncStatus> {
@@ -377,7 +486,7 @@ impl GitSyncManager {
             })?;
 
         let root = PathBuf::from(&folder);
-        let pull_msg = git::pull_repo(&root)?;
+        let pull_msg = git::pull_repo(&root, guard.credentials.as_ref())?;
         let mut reloaded = false;
 
         if fs_layout::has_workspace_files(&root) {
@@ -426,7 +535,7 @@ impl GitSyncManager {
             guard.last_synced_at = Some(Utc::now().to_rfc3339());
         }
 
-        let git_msg = git::commit_and_push(&root, &message, push)?;
+        let git_msg = git::commit_and_push(&root, &message, push, guard.credentials.as_ref())?;
         guard.last_error = None;
 
         Ok(GitSyncActionResult {

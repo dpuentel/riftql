@@ -6,11 +6,18 @@ use std::process::Command;
 use std::os::windows::process::CommandExt;
 
 use crate::error::{AppError, AppResult};
-use crate::models::GitRepoStatus;
+use crate::models::{GitCredentials, GitRepoStatus};
 use crate::sync::fs_layout::ensure_gitignore;
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+const EPHEMERAL_CREDENTIAL_HELPER: &str =
+    "!f() { if [ \"$1\" = \"get\" ]; then printf 'username=%s\\npassword=%s\\n' \"$RIFTQL_GIT_USERNAME\" \"$RIFTQL_GIT_PASSWORD\"; fi; }; f";
+
+fn sanitize_cred_line(raw: &str) -> String {
+    raw.replace(['\r', '\n'], "")
+}
 
 fn build_git_command(dir: Option<&Path>) -> Command {
     let mut cmd = Command::new("git");
@@ -23,8 +30,57 @@ fn build_git_command(dir: Option<&Path>) -> Command {
     cmd
 }
 
-fn run_git(dir: Option<&Path>, args: &[&str]) -> AppResult<String> {
-    let output = build_git_command(dir).args(args).output().map_err(|err| {
+fn apply_ephemeral_credentials(cmd: &mut Command, creds: &GitCredentials) {
+    let user = sanitize_cred_line(creds.username.trim());
+    let effective_user = if user.is_empty() {
+        "git".to_string()
+    } else {
+        user
+    };
+    let pass = sanitize_cred_line(&creds.password);
+    cmd.env("RIFTQL_GIT_USERNAME", effective_user);
+    cmd.env("RIFTQL_GIT_PASSWORD", pass);
+    cmd.args([
+        "-c",
+        "credential.helper=",
+        "-c",
+        &format!("credential.helper={EPHEMERAL_CREDENTIAL_HELPER}"),
+    ]);
+}
+
+fn format_git_error(detail: String, used_creds: bool) -> AppError {
+    let lower = detail.to_ascii_lowercase();
+    let is_auth_failure = lower.contains("could not read username")
+        || lower.contains("could not read password")
+        || lower.contains("terminal prompts disabled")
+        || lower.contains("authentication failed")
+        || lower.contains("invalid username or password");
+
+    if is_auth_failure {
+        let hint = if used_creds {
+            "Verify your HTTPS Username and Personal Access Token / Password under Git Authentication."
+        } else {
+            "Enter your HTTPS Username and Personal Access Token / Password under Git Authentication, or use an SSH URL (git@host:org/repo.git)."
+        };
+        AppError::Git(format!("{detail} — {hint}"))
+    } else {
+        AppError::Git(detail)
+    }
+}
+
+fn run_git_with_auth(
+    dir: Option<&Path>,
+    args: &[&str],
+    creds: Option<&GitCredentials>,
+) -> AppResult<String> {
+    let mut cmd = build_git_command(dir);
+    let active_creds = creds.filter(|c| !c.password.is_empty());
+    if let Some(c) = active_creds {
+        apply_ephemeral_credentials(&mut cmd, c);
+    }
+    cmd.args(args);
+
+    let output = cmd.output().map_err(|err| {
         if err.kind() == std::io::ErrorKind::NotFound {
             AppError::Git("Git executable not found in PATH".to_string())
         } else {
@@ -37,13 +93,63 @@ fn run_git(dir: Option<&Path>, args: &[&str]) -> AppResult<String> {
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let detail = if !stderr.is_empty() { stderr } else { stdout };
-        Err(AppError::Git(if detail.is_empty() {
-            format!("git {} failed", args.join(" "))
+        let detail = if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout
         } else {
-            detail
-        }))
+            format!("git {} failed", args.join(" "))
+        };
+        Err(format_git_error(detail, active_creds.is_some()))
     }
+}
+
+fn run_git(dir: Option<&Path>, args: &[&str]) -> AppResult<String> {
+    run_git_with_auth(dir, args, None)
+}
+
+#[cfg(test)]
+pub(crate) fn test_credential_fill(
+    repo_url: &str,
+    creds: &GitCredentials,
+) -> AppResult<(String, String)> {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let mut cmd = build_git_command(None);
+    apply_ephemeral_credentials(&mut cmd, creds);
+    cmd.args(["credential", "fill"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| AppError::Git(format!("Failed to invoke git credential fill: {e}")))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let input = format!("url={repo_url}\n\n");
+        stdin.write_all(input.as_bytes())?;
+    }
+
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        return Err(AppError::Git(
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut username = String::new();
+    let mut password = String::new();
+    for line in stdout.lines() {
+        if let Some(v) = line.strip_prefix("username=") {
+            username = v.to_string();
+        } else if let Some(v) = line.strip_prefix("password=") {
+            password = v.to_string();
+        }
+    }
+    Ok((username, password))
 }
 
 pub fn git_version() -> Option<String> {
@@ -185,6 +291,7 @@ pub fn clone_repo(
     remote_url: &str,
     target_dir: &Path,
     branch: Option<&str>,
+    creds: Option<&GitCredentials>,
 ) -> AppResult<()> {
     if git_version().is_none() {
         return Err(AppError::Git(
@@ -224,12 +331,12 @@ pub fn clone_repo(
     args.push(url);
     args.push(&target_str);
 
-    run_git(None, &args)?;
+    run_git_with_auth(None, &args, creds)?;
     ensure_gitignore(target_dir)?;
     Ok(())
 }
 
-pub fn pull_repo(dir: &Path) -> AppResult<String> {
+pub fn pull_repo(dir: &Path, creds: Option<&GitCredentials>) -> AppResult<String> {
     let status = inspect_repo(dir);
     if !status.git_available {
         return Err(AppError::Git(
@@ -246,7 +353,7 @@ pub fn pull_repo(dir: &Path) -> AppResult<String> {
             "No 'origin' Git remote configured yet".to_string(),
         ));
     }
-    let out = run_git(Some(dir), &["pull", "--ff-only"])?;
+    let out = run_git_with_auth(Some(dir), &["pull", "--ff-only"], creds)?;
     Ok(if out.is_empty() {
         "Pulled latest changes from origin.".to_string()
     } else {
@@ -254,7 +361,12 @@ pub fn pull_repo(dir: &Path) -> AppResult<String> {
     })
 }
 
-pub fn commit_and_push(dir: &Path, message: &str, push: bool) -> AppResult<String> {
+pub fn commit_and_push(
+    dir: &Path,
+    message: &str,
+    push: bool,
+    creds: Option<&GitCredentials>,
+) -> AppResult<String> {
     let status = inspect_repo(dir);
     if !status.git_available {
         return Err(AppError::Git(
@@ -293,14 +405,14 @@ pub fn commit_and_push(dir: &Path, message: &str, push: bool) -> AppResult<Strin
             ));
         }
 
-        if let Err(push_err) = run_git(Some(dir), &["push"]) {
+        if let Err(push_err) = run_git_with_auth(Some(dir), &["push"], creds) {
             let err_text = push_err.to_string().to_lowercase();
             let needs_upstream = err_text.contains("no upstream branch")
                 || err_text.contains("set-upstream")
                 || err_text.contains("has no upstream");
             if needs_upstream {
                 if let Some(branch) = refreshed.branch {
-                    run_git(Some(dir), &["push", "-u", "origin", &branch])?;
+                    run_git_with_auth(Some(dir), &["push", "-u", "origin", &branch], creds)?;
                 } else {
                     return Err(push_err);
                 }

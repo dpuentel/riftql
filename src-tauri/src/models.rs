@@ -467,6 +467,15 @@ pub struct FolderInspection {
     pub git: GitRepoStatus,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCredentials {
+    #[serde(default)]
+    pub username: String,
+    #[serde(default)]
+    pub password: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct GitSyncStatus {
@@ -478,6 +487,10 @@ pub struct GitSyncStatus {
     #[serde(default)]
     pub branch: Option<String>,
     pub auto_sync: bool,
+    #[serde(default)]
+    pub auth_username: Option<String>,
+    #[serde(default)]
+    pub has_credentials: bool,
     #[serde(default)]
     pub last_synced_at: Option<String>,
     #[serde(default)]

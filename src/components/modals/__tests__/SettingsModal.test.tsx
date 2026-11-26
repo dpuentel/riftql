@@ -335,6 +335,8 @@ describe('SettingsModal', () => {
       migrationMode: 'migrate-to-folder',
       initGit: true,
       autoSync: true,
+      username: null,
+      password: null,
     });
     expect(await screen.findByText('Enabled')).toBeInTheDocument();
     expect(screen.getByText(/migrated sqlite workspace/i)).toBeInTheDocument();
@@ -362,5 +364,156 @@ describe('SettingsModal', () => {
     await user.click(enableSwitch);
     expect(calls.some((c) => c.cmd === 'disable_git_sync_cmd')).toBe(true);
     expect(await screen.findByText('SQLite Only')).toBeInTheDocument();
+  });
+
+  it('submits and clears HTTPS Git authentication credentials for private repositories', async () => {
+    const user = userEvent.setup();
+    const calls: Array<{ cmd: string; args?: Record<string, unknown> }> = [];
+    let hasCredentials = false;
+    let authUsername: string | undefined;
+
+    setTauriBridgeAdapter({
+      invoke: async <T,>(cmd: string, args?: Record<string, unknown>) => {
+        calls.push({ cmd, args });
+        if (cmd === 'get_git_sync_status_cmd') {
+          return {
+            enabled: false,
+            autoSync: true,
+            authUsername,
+            hasCredentials,
+            git: {
+              gitAvailable: true,
+              isGitRepo: false,
+              changedFiles: 0,
+              ahead: 0,
+              behind: 0,
+            },
+          } as T;
+        }
+        if (cmd === 'inspect_git_sync_folder_cmd') {
+          return {
+            exists: true,
+            isEmpty: true,
+            hasRiftqlWorkspace: false,
+            collectionCount: 0,
+            environmentCount: 0,
+            git: {
+              gitAvailable: true,
+              isGitRepo: false,
+              changedFiles: 0,
+              ahead: 0,
+              behind: 0,
+            },
+          } as T;
+        }
+        if (cmd === 'configure_git_sync_cmd') {
+          hasCredentials = Boolean(args?.password);
+          authUsername = typeof args?.username === 'string' ? args.username : undefined;
+          return {
+            status: {
+              enabled: true,
+              folderPath: String(args?.folderPath ?? ''),
+              remoteUrl: String(args?.remoteUrl ?? ''),
+              branch: 'main',
+              autoSync: true,
+              authUsername,
+              hasCredentials,
+              git: {
+                gitAvailable: true,
+                isGitRepo: true,
+                branch: 'main',
+                remoteUrl: String(args?.remoteUrl ?? ''),
+                changedFiles: 0,
+                ahead: 0,
+                behind: 0,
+              },
+            },
+            message: 'Cloned repository and imported workspace.',
+            workspaceReloaded: true,
+          } as T;
+        }
+        if (cmd === 'save_git_credentials_cmd') {
+          if (args?.clear) {
+            hasCredentials = false;
+            authUsername = undefined;
+          } else {
+            hasCredentials = true;
+            authUsername = typeof args?.username === 'string' ? args.username : undefined;
+          }
+          return {
+            enabled: true,
+            folderPath: '/home/user/private-repo',
+            remoteUrl: 'https://git-php.dinalab.com/dpuente/riftql-workspace/',
+            branch: 'main',
+            autoSync: true,
+            authUsername,
+            hasCredentials,
+            git: {
+              gitAvailable: true,
+              isGitRepo: true,
+              branch: 'main',
+              remoteUrl: 'https://git-php.dinalab.com/dpuente/riftql-workspace/',
+              changedFiles: 0,
+              ahead: 0,
+              behind: 0,
+            },
+          } as T;
+        }
+        if (cmd === 'load_workspace') {
+          return {
+            collections: [],
+            folders: [],
+            savedRequests: [],
+            environments: [
+              { id: 'g1', name: 'Global', isGlobal: true, variables: [], createdAt: '', updatedAt: '' },
+            ],
+            settings: { ...DEFAULT_SETTINGS },
+          } as T;
+        }
+        if (cmd === 'list_history_cmd' || cmd === 'list_cookies_cmd') {
+          return [] as T;
+        }
+        return undefined as T;
+      },
+      openFile: vi.fn(async () => null),
+      saveFile: vi.fn(async () => null),
+      openDirectory: vi.fn(async () => '/home/user/private-repo'),
+    });
+
+    render(
+      <TooltipProvider>
+        <SettingsModal open onOpenChange={() => {}} />
+      </TooltipProvider>,
+    );
+
+    await user.click(screen.getByRole('tab', { name: /git sync/i }));
+    await user.type(
+      screen.getByLabelText(/git sync workspace folder/i),
+      '/home/user/private-repo',
+    );
+    await user.type(
+      screen.getByLabelText(/git repository url/i),
+      'https://git-php.dinalab.com/dpuente/riftql-workspace/',
+    );
+
+    // HTTPS Authentication section opens automatically for https:// URLs
+    const userField = await screen.findByLabelText(/git https username/i);
+    const passField = screen.getByLabelText(/git https password or token/i);
+    await user.type(userField, 'dpuente');
+    await user.type(passField, 'my-secret-pat');
+
+    await user.click(screen.getByRole('button', { name: /clone git repo/i }));
+    await user.click(screen.getByRole('button', { name: /clone repo & enable sync/i }));
+
+    const cfgCall = calls.find((c) => c.cmd === 'configure_git_sync_cmd');
+    expect(cfgCall?.args?.username).toBe('dpuente');
+    expect(cfgCall?.args?.password).toBe('my-secret-pat');
+    expect(await screen.findByText('Saved locally')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /clear credentials/i }));
+    expect(
+      calls.some((c) => c.cmd === 'save_git_credentials_cmd' && c.args?.clear === true),
+    ).toBe(true);
+    expect(screen.queryByText('Saved locally')).not.toBeInTheDocument();
   });
 });

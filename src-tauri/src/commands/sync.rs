@@ -28,6 +28,8 @@ pub fn configure_git_sync_cmd(
     migration_mode: GitSyncMigrationMode,
     init_git: bool,
     auto_sync: bool,
+    username: Option<String>,
+    password: Option<String>,
 ) -> AppResult<GitSyncActionResult> {
     sync.configure_and_enable(
         &db,
@@ -37,7 +39,19 @@ pub fn configure_git_sync_cmd(
         migration_mode,
         init_git,
         auto_sync,
+        username,
+        password,
     )
+}
+
+#[tauri::command]
+pub fn save_git_credentials_cmd(
+    sync: State<GitSyncManager>,
+    username: Option<String>,
+    password: Option<String>,
+    clear: bool,
+) -> AppResult<GitSyncStatus> {
+    sync.save_git_credentials(username, password, clear)
 }
 
 #[tauri::command]

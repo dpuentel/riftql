@@ -184,6 +184,8 @@ export interface GitSyncStatus {
   remoteUrl?: string;
   branch?: string;
   autoSync: boolean;
+  authUsername?: string;
+  hasCredentials?: boolean;
   lastSyncedAt?: string;
   lastError?: string;
   git: GitRepoStatus;
