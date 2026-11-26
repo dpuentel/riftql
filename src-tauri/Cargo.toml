@@ -1,6 +1,6 @@
 [package]
 name = "riftql"
-version = "0.1.0"
+version = "0.2.0"
 description = "RiftQL - The local-first API client for REST & GraphQL"
 authors = ["David Puente"]
 edition = "2021"
