@@ -1,6 +1,36 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/**
+ * Resolves the permanent published GitHub Release download URL for an updater asset.
+ * Draft GitHub Releases report temporary `/releases/download/untagged-<hex>/...`
+ * URLs in `asset.browser_download_url` before `draft=false`, which immediately 404
+ * once the release is published under its real tag.
+ */
+export function resolvePublishedDownloadUrl({ repo, tag, assetName, browserDownloadUrl }) {
+  const normalizedRepo = String(repo ?? '')
+    .trim()
+    .replace(/^\/+|\/+$/g, '');
+  const rawTag = String(tag ?? '').trim();
+  const validTag = rawTag && !/^untagged-/i.test(rawTag) ? rawTag : '';
+  const normalizedAssetName = String(assetName ?? '').trim();
+  const rawUrl = String(browserDownloadUrl ?? '').trim();
+
+  if (normalizedRepo && validTag && normalizedAssetName) {
+    return `https://github.com/${normalizedRepo}/releases/download/${encodeURIComponent(validTag)}/${encodeURIComponent(normalizedAssetName)}`;
+  }
+
+  if (rawUrl && validTag) {
+    return rawUrl.replace(
+      /\/releases\/download\/untagged-[^/]+\//i,
+      `/releases/download/${encodeURIComponent(validTag)}/`,
+    );
+  }
+
+  return rawUrl;
+}
 
 /**
  * Selects the best updater binary + signature pair for each Tauri target key
@@ -9,11 +39,20 @@ import path from 'node:path';
  * Linux prefers `.AppImage` exclusively (ignoring `.deb`/`.rpm`, since static `latest.json`
  * maps a single URL per `linux-x86_64` slot and only AppImage auto-updates in user-space).
  */
-export function buildLatestJson({ version, notes, pubDate, assets }) {
-  const normalizedVersion = String(version ?? '').trim().replace(/^v/i, '');
+export function buildLatestJson({ version, tag, notes, pubDate, assets }) {
+  const rawVersion = String(version ?? '').trim();
+  const normalizedVersion = rawVersion.replace(/^v/i, '');
   if (!normalizedVersion) {
     throw new Error('Release version is required to build latest.json');
   }
+
+  const trimmedTag = String(tag ?? '').trim();
+  const resolvedTag =
+    trimmedTag && !/^untagged-/i.test(trimmedTag)
+      ? trimmedTag
+      : /^v/i.test(rawVersion)
+        ? rawVersion
+        : `v${normalizedVersion}`;
 
   const signedAssets = (assets ?? []).filter(
     (asset) =>
@@ -25,6 +64,11 @@ export function buildLatestJson({ version, notes, pubDate, assets }) {
   );
 
   const pickFirst = (predicate) => signedAssets.find((asset) => predicate(asset.name));
+  const resolveAssetUrl = (asset) =>
+    resolvePublishedDownloadUrl({
+      tag: resolvedTag,
+      browserDownloadUrl: asset.downloadUrl,
+    });
 
   const platforms = {};
 
@@ -37,7 +81,7 @@ export function buildLatestJson({ version, notes, pubDate, assets }) {
   if (windowsExe) {
     platforms['windows-x86_64'] = {
       signature: windowsExe.signature.trim(),
-      url: windowsExe.downloadUrl,
+      url: resolveAssetUrl(windowsExe),
     };
   }
 
@@ -48,7 +92,7 @@ export function buildLatestJson({ version, notes, pubDate, assets }) {
   if (linuxAppImage) {
     platforms['linux-x86_64'] = {
       signature: linuxAppImage.signature.trim(),
-      url: linuxAppImage.downloadUrl,
+      url: resolveAssetUrl(linuxAppImage),
     };
   }
 
@@ -57,7 +101,7 @@ export function buildLatestJson({ version, notes, pubDate, assets }) {
   if (macArm) {
     platforms['darwin-aarch64'] = {
       signature: macArm.signature.trim(),
-      url: macArm.downloadUrl,
+      url: resolveAssetUrl(macArm),
     };
   }
 
@@ -66,7 +110,7 @@ export function buildLatestJson({ version, notes, pubDate, assets }) {
   if (macX64) {
     platforms['darwin-x86_64'] = {
       signature: macX64.signature.trim(),
-      url: macX64.downloadUrl,
+      url: resolveAssetUrl(macX64),
     };
   }
 
@@ -147,6 +191,9 @@ async function runCli() {
     }
   }
 
+  const rawTag = String(tagName || release.tag_name || '').trim();
+  const resolvedTag = rawTag && !/^untagged-/i.test(rawTag) ? rawTag : '';
+
   const signedAssets = [];
   for (const asset of rawAssets) {
     if (typeof asset.name !== 'string' || asset.name.endsWith('.sig')) continue;
@@ -155,13 +202,19 @@ async function runCli() {
     const signature = await fetchAssetText(sigAsset.url, token);
     signedAssets.push({
       name: asset.name,
-      downloadUrl: asset.browser_download_url,
+      downloadUrl: resolvePublishedDownloadUrl({
+        repo,
+        tag: resolvedTag,
+        assetName: asset.name,
+        browserDownloadUrl: asset.browser_download_url,
+      }),
       signature,
     });
   }
 
   const manifest = buildLatestJson({
-    version: tagName || release.tag_name,
+    version: resolvedTag || tagName || release.tag_name,
+    tag: resolvedTag,
     notes: release.body || '',
     pubDate: release.published_at || new Date().toISOString(),
     assets: signedAssets,
@@ -180,11 +233,17 @@ async function runCli() {
   );
 }
 
-const isCli =
-  process.argv[1] &&
-  import.meta.url === new URL(`file://${path.resolve(process.argv[1]).replace(/\\/g, '/')}`).href;
+function isExecutedDirectly() {
+  if (!process.argv[1]) return false;
+  const scriptPath = path.resolve(fileURLToPath(import.meta.url));
+  const entryPath = path.resolve(process.argv[1]);
+  if (process.platform === 'win32') {
+    return scriptPath.toLowerCase() === entryPath.toLowerCase();
+  }
+  return scriptPath === entryPath;
+}
 
-if (isCli) {
+if (isExecutedDirectly()) {
   runCli().catch((err) => {
     console.error(err instanceof Error ? err.message : String(err));
     process.exit(1);
