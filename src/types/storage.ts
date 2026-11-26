@@ -178,16 +178,43 @@ export interface FolderInspection {
   git: GitRepoStatus;
 }
 
+export interface GitRemoteCommitSummary {
+  hash: string;
+  author: string;
+  message: string;
+  date: string;
+}
+
+export interface GitRemoteUpdateInfo {
+  repoName: string;
+  branch: string;
+  remoteUrl?: string;
+  behind: number;
+  ahead: number;
+  changedFiles: number;
+  commits: GitRemoteCommitSummary[];
+  remoteHead: string;
+}
+
 export interface GitSyncStatus {
   enabled: boolean;
   folderPath?: string;
   remoteUrl?: string;
   branch?: string;
   autoSync: boolean;
+  autoPush?: boolean;
+  autoPushDelaySecs?: number;
+  autoFetch?: boolean;
+  autoFetchIntervalMins?: number;
+  fetchSnoozeMins?: number;
+  isPushing?: boolean;
   authUsername?: string;
   hasCredentials?: boolean;
   lastSyncedAt?: string;
+  lastFetchedAt?: string;
   lastError?: string;
+  lastFetchError?: string;
+  remoteUpdate?: GitRemoteUpdateInfo;
   git: GitRepoStatus;
 }
 

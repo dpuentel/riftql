@@ -11,7 +11,9 @@
 
 - **REST & GraphQL Client**:
   - Standard HTTP methods (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `HEAD`) executed natively in Rust (`reqwest` + `tokio`) with zero CORS restrictions.
-  - Native GraphQL editor powered by CodeMirror 6 + `cm6-graphql`: schema-aware autocomplete, linting, multi-operation selector, JSON variables editor, on-demand introspection caching per endpoint, and a searchable **Schema Docs** explorer.
+  - **Native GraphQL Editor & Schema Auto-Discovery**:
+    - Powered by CodeMirror 6 + `cm6-graphql`: schema-aware autocomplete, linting, multi-operation selector, JSON variables editor & formatter, on-demand introspection caching per endpoint, and a searchable **Schema Docs** explorer.
+    - **AUTO-DISCOVERED Folder Generator**: Any collection or folder with a configured Base URL can introspect its GraphQL endpoint (inheriting URL, Auth, and active Environment variables), detect which root Queries & Mutations are *not* yet covered across that container's AST, and generate missing operations inside an `AUTO-DISCOVERED` subfolder ready to organize.
 - **Request Construction & Auth**:
   - Bidirectional URL <-> Query Params sync preserving `{{variable}}` templates.
   - Headers, Body (`None`, `JSON` with validation/formatting, `Form-data` with native streaming file uploads, `URL-encoded`, `Raw` text/XML/HTML/JS, and `GraphQL`).
@@ -72,7 +74,7 @@ Enable or disable folder-based Git sync anytime in **Settings → Git Sync**:
   - Any Environment or Collection variable marked as **`isSecret`** has its value stripped (`""`) inside tracked JSON files so keys/tokens are never committed to Git.
   - Real secret values remain **local-only** in your SQLite database (`riftql.db`) and are mirrored in `<sync-folder>/.riftql.secrets.json`, which RiftQL automatically adds to `.gitignore` (alongside `*.db`, `*.db-wal`, `*.db-shm`).
   - When pulling updates (`git pull` or external disk changes), RiftQL keeps each developer's local SQLite secret values intact automatically. *(Best practice: reference secrets via `{{api_token}}` inside Auth/Headers instead of hardcoding literal credentials in requests.)*
-- **Auto-sync & Git actions:** Automatically exports local workspace edits, watches disk every ~2 seconds for `git pull` / branch switches, and provides built-in **Git Init / Pull / Commit & Push**.
+- **Auto-sync, Auto-Push & Auto-Fetch:** Automatically writes local workspace edits, watches disk every ~2 seconds for external updates, supports optional **Auto-Commit & Push** (debounced quiet delay in background; pauses safely and flags non-fast-forward divergence) and periodic **Auto-Fetch** (checks `origin` and pops up a non-blocking Sonner notification with incoming commits, **Pull Now / Rebase & Autostash**, configurable **Later** snooze duration, and **Mute for Session**), alongside manual **Fetch Now / Init / Pull / Commit & Push** controls.
 - **HTTPS & SSH Authentication:** Supports private repositories via SSH URLs (`git@host:org/repo.git`) or built-in **HTTPS Authentication** (Username + Personal Access Token / Password saved locally inside `<app-data-dir>/git-sync-credentials.json` and passed ephemerally to Git without ever writing credentials into `.git/config` or the workspace folder).
 
 ---

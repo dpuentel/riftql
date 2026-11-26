@@ -38,7 +38,9 @@ export interface AppShellModalSlots {
   settingsOpen?: boolean;
   setSettingsOpen?: (open: boolean) => void;
   onOpenGitSyncSettings?: () => void;
+  onOpenRemoteUpdates?: () => void;
   onOpenImportCollection?: (target?: { collectionId?: string; folderId?: string }) => void;
+  onDiscoverGraphQL?: (target: { collectionId: string; folderId?: string }) => void;
   gitSyncStatus?: GitSyncStatus | null;
   importCurlOpen?: boolean;
   setImportCurlOpen?: (open: boolean) => void;
@@ -272,7 +274,9 @@ export function AppShell(props: AppShellModalSlots = {}) {
               onOpenCookies={() => setCookiesOpen(true)}
               onOpenSettings={() => props.setSettingsOpen?.(true)}
               onOpenGitSyncSettings={props.onOpenGitSyncSettings}
+              onOpenRemoteUpdates={props.onOpenRemoteUpdates}
               onOpenImportCollection={props.onOpenImportCollection}
+              onDiscoverGraphQL={props.onDiscoverGraphQL}
               gitSyncStatus={props.gitSyncStatus}
               onEditCollection={(col) => {
                 setEditingFolder(undefined);

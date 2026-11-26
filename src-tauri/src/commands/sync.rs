@@ -55,6 +55,26 @@ pub fn save_git_credentials_cmd(
 }
 
 #[tauri::command]
+pub fn update_git_sync_options_cmd(
+    sync: State<GitSyncManager>,
+    auto_sync: bool,
+    auto_push: bool,
+    auto_push_delay_secs: u64,
+    auto_fetch: bool,
+    auto_fetch_interval_mins: u64,
+    fetch_snooze_mins: u64,
+) -> AppResult<GitSyncStatus> {
+    sync.update_automation_options(
+        auto_sync,
+        auto_push,
+        auto_push_delay_secs,
+        auto_fetch,
+        auto_fetch_interval_mins,
+        fetch_snooze_mins,
+    )
+}
+
+#[tauri::command]
 pub fn disable_git_sync_cmd(sync: State<GitSyncManager>) -> AppResult<GitSyncStatus> {
     sync.disable()
 }
@@ -86,11 +106,17 @@ pub fn git_init_workspace_cmd(
 }
 
 #[tauri::command]
+pub fn git_fetch_workspace_cmd(sync: State<GitSyncManager>) -> AppResult<GitSyncActionResult> {
+    sync.git_fetch_workspace()
+}
+
+#[tauri::command]
 pub fn git_pull_workspace_cmd(
     db: State<Database>,
     sync: State<GitSyncManager>,
+    rebase: Option<bool>,
 ) -> AppResult<GitSyncActionResult> {
-    sync.git_pull_workspace(&db)
+    sync.git_pull_workspace_with_strategy(&db, rebase.unwrap_or(false))
 }
 
 #[tauri::command]

@@ -2,18 +2,28 @@ import * as React from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { CodeSnippetModal } from '@/components/modals/CodeSnippetModal';
 import { CommandPalette } from '@/components/modals/CommandPalette';
+import { DiscoverGraphQLModal } from '@/components/modals/DiscoverGraphQLModal';
+import { GitRemoteUpdateModal } from '@/components/modals/GitRemoteUpdateModal';
 import { ImportCollectionModal } from '@/components/modals/ImportCollectionModal';
 import { ImportCurlModal } from '@/components/modals/ImportCurlModal';
 import { SettingsModal, type SettingsTab } from '@/components/modals/SettingsModal';
+import { Toaster } from '@/components/ui/Toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useGlobalShortcuts } from '@/hooks/useGlobalShortcuts';
 import { isCurlCommand, parseCurlCommand } from '@/lib/curl-parser';
 import { formatGraphQL, formatVariablesJson } from '@/lib/graphql';
 import { hasNativeFileBridge, invokeCommand, listenEvent } from '@/lib/tauri';
+import { notify } from '@/store/useNotificationStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useTabsStore } from '@/store/useTabsStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
-import type { GitSyncStatus } from '@/types/storage';
+import type {
+  GitRemoteUpdateInfo,
+  GitSyncActionResult,
+  GitSyncStatus,
+} from '@/types/storage';
+
+const REMOTE_UPDATE_TOAST_ID = 'git-remote-updates';
 
 export function App() {
   const loadWorkspace = useWorkspaceStore((s) => s.loadWorkspace);
@@ -39,8 +49,15 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('general');
   const [gitSyncStatus, setGitSyncStatus] = React.useState<GitSyncStatus | null>(null);
+  const [remoteUpdate, setRemoteUpdate] = React.useState<GitRemoteUpdateInfo | null>(null);
+  const [remoteUpdateModalOpen, setRemoteUpdateModalOpen] = React.useState(false);
   const [importCurlOpen, setImportCurlOpen] = React.useState(false);
   const [importCollectionModal, setImportCollectionModal] = React.useState<{
+    open: boolean;
+    collectionId?: string;
+    folderId?: string;
+  }>({ open: false });
+  const [discoverGqlModal, setDiscoverGqlModal] = React.useState<{
     open: boolean;
     collectionId?: string;
     folderId?: string;
@@ -51,8 +68,11 @@ export function App() {
   const [saveModalTabId, setSaveModalTabId] = React.useState<string | null>(null);
   const [createCollectionTrigger, setCreateCollectionTrigger] = React.useState(0);
   const [recordingShortcut, setRecordingShortcut] = React.useState(false);
-  const [toastMsg, setToastMsg] = React.useState<string | null>(null);
   const urlInputRef = React.useRef<HTMLInputElement | null>(null);
+  const snoozeUntilMsRef = React.useRef<number>(0);
+  const mutedForSessionRef = React.useRef<boolean>(false);
+  const fetchSnoozeMinsRef = React.useRef<number>(30);
+  fetchSnoozeMinsRef.current = gitSyncStatus?.fetchSnoozeMins ?? 30;
 
   const openSettings = React.useCallback((tab: SettingsTab = 'general') => {
     setSettingsTab(tab);
@@ -70,12 +90,113 @@ export function App() {
     [],
   );
 
+  const openDiscoverGraphQL = React.useCallback(
+    (target: { collectionId: string; folderId?: string }) => {
+      setDiscoverGqlModal({
+        open: true,
+        collectionId: target.collectionId,
+        folderId: target.folderId,
+      });
+    },
+    [],
+  );
+
   const showToast = React.useCallback((msg: string) => {
-    setToastMsg(msg);
-    setTimeout(() => {
-      setToastMsg((prev) => (prev === msg ? null : prev));
-    }, 2600);
+    notify.success(msg);
   }, []);
+
+  const snoozeRemoteNotifications = React.useCallback(() => {
+    const mins = fetchSnoozeMinsRef.current;
+    snoozeUntilMsRef.current = Date.now() + mins * 60_000;
+    notify.dismiss(REMOTE_UPDATE_TOAST_ID);
+  }, []);
+
+  const muteRemoteNotificationsForSession = React.useCallback(() => {
+    mutedForSessionRef.current = true;
+    notify.dismiss(REMOTE_UPDATE_TOAST_ID);
+  }, []);
+
+  const presentRemoteUpdateNotification = React.useCallback(
+    (info: GitRemoteUpdateInfo, force = false) => {
+      setRemoteUpdate(info);
+      if (!force && (mutedForSessionRef.current || Date.now() < snoozeUntilMsRef.current)) {
+        return;
+      }
+      const snoozeMins = fetchSnoozeMinsRef.current;
+      notify.info(`Updates available in ${info.repoName}`, {
+        id: REMOTE_UPDATE_TOAST_ID,
+        durationMs: 0,
+        description: `${info.behind} new commit${info.behind === 1 ? '' : 's'} on branch ${info.branch}.`,
+        actions: [
+          {
+            label: 'View & Pull…',
+            variant: 'primary',
+            onClick: () => {
+              notify.dismiss(REMOTE_UPDATE_TOAST_ID);
+              setRemoteUpdateModalOpen(true);
+            },
+          },
+          {
+            label: `Later (${snoozeMins}m)`,
+            variant: 'secondary',
+            onClick: () => snoozeRemoteNotifications(),
+          },
+          {
+            label: 'Mute',
+            variant: 'ghost',
+            onClick: () => muteRemoteNotificationsForSession(),
+          },
+        ],
+      });
+    },
+    [snoozeRemoteNotifications, muteRemoteNotificationsForSession],
+  );
+
+  const handlePullRemoteUpdates = React.useCallback(
+    async (rebase: boolean) => {
+      const result = await invokeCommand<GitSyncActionResult>('git_pull_workspace_cmd', {
+        rebase,
+      });
+      setGitSyncStatus(result.status);
+      setRemoteUpdate(result.status.remoteUpdate ?? null);
+      snoozeUntilMsRef.current = 0;
+      notify.dismiss(REMOTE_UPDATE_TOAST_ID);
+      if (result.workspaceReloaded) {
+        await loadWorkspace();
+        useTabsStore
+          .getState()
+          .syncTabsWithWorkspace(useWorkspaceStore.getState().savedRequests);
+      }
+      notify.success(result.message || 'Pulled latest changes from Git remote.');
+    },
+    [loadWorkspace],
+  );
+
+  const handleOpenRemoteUpdates = React.useCallback(async () => {
+    if (remoteUpdate) {
+      setRemoteUpdateModalOpen(true);
+      return;
+    }
+    if (gitSyncStatus?.remoteUpdate) {
+      setRemoteUpdate(gitSyncStatus.remoteUpdate);
+      setRemoteUpdateModalOpen(true);
+      return;
+    }
+    if (hasNativeFileBridge()) {
+      try {
+        const res = await invokeCommand<GitSyncActionResult>('git_fetch_workspace_cmd');
+        setGitSyncStatus(res.status);
+        if (res.status.remoteUpdate) {
+          setRemoteUpdate(res.status.remoteUpdate);
+          setRemoteUpdateModalOpen(true);
+          return;
+        }
+      } catch {
+        // Fall through to opening Git Sync settings
+      }
+    }
+    openSettings('git-sync');
+  }, [remoteUpdate, gitSyncStatus?.remoteUpdate, openSettings]);
 
   React.useEffect(() => {
     void (async () => {
@@ -86,6 +207,9 @@ export function App() {
           const status = await invokeCommand<GitSyncStatus>('get_git_sync_status_cmd');
           if (status && typeof status.enabled === 'boolean') {
             setGitSyncStatus(status);
+            if (status.remoteUpdate) {
+              setRemoteUpdate(status.remoteUpdate);
+            }
           }
         } catch {
           // Ignore when unavailable
@@ -96,33 +220,58 @@ export function App() {
 
   React.useEffect(() => {
     let active = true;
-    let unlisten: (() => void) | undefined;
+    const cleanups: Array<() => void> = [];
 
-    void listenEvent<GitSyncStatus>('riftql://git-sync-updated', (status) => {
-      if (!active) return;
+    const register = async <T,>(eventName: string, handler: (payload: T) => void) => {
+      const unlisten = await listenEvent<T>(eventName, (payload) => {
+        if (active) handler(payload);
+      });
+      if (!active) {
+        unlisten();
+      } else {
+        cleanups.push(unlisten);
+      }
+    };
+
+    void register<GitSyncStatus>('riftql://git-sync-updated', (status) => {
       if (status && typeof status.enabled === 'boolean') {
         setGitSyncStatus(status);
+        setRemoteUpdate(status.remoteUpdate ?? null);
       }
       void (async () => {
         await loadWorkspace();
         useTabsStore
           .getState()
           .syncTabsWithWorkspace(useWorkspaceStore.getState().savedRequests);
-        showToast('Workspace reloaded from Git sync folder.');
+        notify.info('Workspace reloaded from Git sync folder.');
       })();
-    }).then((fn) => {
-      if (!active) {
-        fn();
-      } else {
-        unlisten = fn;
+    });
+
+    void register<GitSyncStatus>('riftql://git-sync-status', (status) => {
+      if (status && typeof status.enabled === 'boolean') {
+        setGitSyncStatus(status);
+        if (!status.remoteUpdate) {
+          setRemoteUpdate(null);
+          notify.dismiss(REMOTE_UPDATE_TOAST_ID);
+        } else {
+          setRemoteUpdate(status.remoteUpdate);
+        }
+      }
+    });
+
+    void register<GitRemoteUpdateInfo>('riftql://git-remote-updates', (info) => {
+      if (info && typeof info.behind === 'number' && info.behind > 0) {
+        presentRemoteUpdateNotification(info);
       }
     });
 
     return () => {
       active = false;
-      unlisten?.();
+      for (const fn of cleanups) {
+        fn();
+      }
     };
-  }, [loadWorkspace, showToast]);
+  }, [loadWorkspace, presentRemoteUpdateNotification]);
 
   const handlePasteCurlInUrl = React.useCallback(
     (pasted: string): boolean => {
@@ -261,7 +410,9 @@ export function App() {
           }
         }}
         onOpenGitSyncSettings={() => openSettings('git-sync')}
+        onOpenRemoteUpdates={() => void handleOpenRemoteUpdates()}
         onOpenImportCollection={openImportCollection}
+        onDiscoverGraphQL={openDiscoverGraphQL}
         gitSyncStatus={gitSyncStatus}
         importCurlOpen={importCurlOpen}
         setImportCurlOpen={setImportCurlOpen}
@@ -288,6 +439,25 @@ export function App() {
               initialTargetFolderId={importCollectionModal.folderId}
               onImported={showToast}
             />
+            <DiscoverGraphQLModal
+              open={discoverGqlModal.open}
+              onOpenChange={(nextOpen) =>
+                setDiscoverGqlModal((prev) => ({ ...prev, open: nextOpen }))
+              }
+              collectionId={discoverGqlModal.collectionId}
+              folderId={discoverGqlModal.folderId}
+              onGenerated={showToast}
+            />
+            <GitRemoteUpdateModal
+              open={remoteUpdateModalOpen}
+              onOpenChange={setRemoteUpdateModalOpen}
+              updateInfo={remoteUpdate}
+              snoozeMins={gitSyncStatus?.fetchSnoozeMins ?? 30}
+              onPull={handlePullRemoteUpdates}
+              onSnooze={snoozeRemoteNotifications}
+              onMuteSession={muteRemoteNotificationsForSession}
+              onOpenGitSettings={() => openSettings('git-sync')}
+            />
             <CodeSnippetModal open={codeSnippetOpen} onOpenChange={setCodeSnippetOpen} />
             <CommandPalette
               open={commandPaletteOpen}
@@ -311,18 +481,17 @@ export function App() {
               onOpenChange={setSettingsOpen}
               onRecordingChange={setRecordingShortcut}
               initialTab={settingsTab}
-              onGitSyncStatusChange={setGitSyncStatus}
+              onGitSyncStatusChange={(nextStatus) => {
+                setGitSyncStatus(nextStatus);
+                setRemoteUpdate(nextStatus.remoteUpdate ?? null);
+                if (!nextStatus.remoteUpdate) {
+                  notify.dismiss(REMOTE_UPDATE_TOAST_ID);
+                }
+              }}
+              onRemoteUpdateFound={(info) => presentRemoteUpdateNotification(info, true)}
               onOpenImportCollection={() => openImportCollection()}
             />
-            {toastMsg && (
-              <div
-                role="status"
-                aria-live="polite"
-                className="pointer-events-none fixed right-4 bottom-4 z-50 rounded-md border border-[var(--accent)]/40 bg-[var(--bg-surface)] px-3 py-2 text-xs text-[var(--text-primary)] shadow-lg"
-              >
-                {toastMsg}
-              </div>
-            )}
+            <Toaster />
           </>
         }
       />

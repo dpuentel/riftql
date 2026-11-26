@@ -402,6 +402,18 @@ pub struct StorageInfo {
     pub is_custom: bool,
 }
 
+fn default_auto_push_delay_secs() -> u64 {
+    15
+}
+
+fn default_auto_fetch_interval_mins() -> u64 {
+    5
+}
+
+fn default_fetch_snooze_mins() -> u64 {
+    30
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct GitSyncConfig {
@@ -415,6 +427,16 @@ pub struct GitSyncConfig {
     pub branch: Option<String>,
     #[serde(default = "default_true")]
     pub auto_sync: bool,
+    #[serde(default)]
+    pub auto_push: bool,
+    #[serde(default = "default_auto_push_delay_secs")]
+    pub auto_push_delay_secs: u64,
+    #[serde(default)]
+    pub auto_fetch: bool,
+    #[serde(default = "default_auto_fetch_interval_mins")]
+    pub auto_fetch_interval_mins: u64,
+    #[serde(default = "default_fetch_snooze_mins")]
+    pub fetch_snooze_mins: u64,
 }
 
 impl Default for GitSyncConfig {
@@ -425,6 +447,11 @@ impl Default for GitSyncConfig {
             remote_url: None,
             branch: None,
             auto_sync: true,
+            auto_push: false,
+            auto_push_delay_secs: default_auto_push_delay_secs(),
+            auto_fetch: false,
+            auto_fetch_interval_mins: default_auto_fetch_interval_mins(),
+            fetch_snooze_mins: default_fetch_snooze_mins(),
         }
     }
 }
@@ -478,6 +505,30 @@ pub struct GitCredentials {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct GitRemoteCommitSummary {
+    pub hash: String,
+    pub author: String,
+    pub message: String,
+    pub date: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitRemoteUpdateInfo {
+    pub repo_name: String,
+    pub branch: String,
+    #[serde(default)]
+    pub remote_url: Option<String>,
+    pub behind: usize,
+    pub ahead: usize,
+    pub changed_files: usize,
+    #[serde(default)]
+    pub commits: Vec<GitRemoteCommitSummary>,
+    pub remote_head: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct GitSyncStatus {
     pub enabled: bool,
     #[serde(default)]
@@ -488,13 +539,31 @@ pub struct GitSyncStatus {
     pub branch: Option<String>,
     pub auto_sync: bool,
     #[serde(default)]
+    pub auto_push: bool,
+    #[serde(default = "default_auto_push_delay_secs")]
+    pub auto_push_delay_secs: u64,
+    #[serde(default)]
+    pub auto_fetch: bool,
+    #[serde(default = "default_auto_fetch_interval_mins")]
+    pub auto_fetch_interval_mins: u64,
+    #[serde(default = "default_fetch_snooze_mins")]
+    pub fetch_snooze_mins: u64,
+    #[serde(default)]
+    pub is_pushing: bool,
+    #[serde(default)]
     pub auth_username: Option<String>,
     #[serde(default)]
     pub has_credentials: bool,
     #[serde(default)]
     pub last_synced_at: Option<String>,
     #[serde(default)]
+    pub last_fetched_at: Option<String>,
+    #[serde(default)]
     pub last_error: Option<String>,
+    #[serde(default)]
+    pub last_fetch_error: Option<String>,
+    #[serde(default)]
+    pub remote_update: Option<GitRemoteUpdateInfo>,
     pub git: GitRepoStatus,
 }
 

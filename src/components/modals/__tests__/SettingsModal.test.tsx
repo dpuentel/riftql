@@ -516,4 +516,122 @@ describe('SettingsModal', () => {
     ).toBe(true);
     expect(screen.queryByText('Saved locally')).not.toBeInTheDocument();
   });
+
+  it('toggles Git Sync auto-push & auto-fetch options and runs Fetch Now', async () => {
+    const user = userEvent.setup();
+    const calls: Array<{ cmd: string; args?: Record<string, unknown> }> = [];
+    const onRemoteUpdateFound = vi.fn();
+
+    let statusState = {
+      enabled: true,
+      folderPath: '/home/user/team-repo',
+      remoteUrl: 'https://github.com/org/team-repo.git',
+      branch: 'main',
+      autoSync: true,
+      autoPush: false,
+      autoPushDelaySecs: 15,
+      autoFetch: false,
+      autoFetchIntervalMins: 5,
+      fetchSnoozeMins: 30,
+      isPushing: false,
+      git: {
+        gitAvailable: true,
+        isGitRepo: true,
+        branch: 'main',
+        remoteUrl: 'https://github.com/org/team-repo.git',
+        changedFiles: 0,
+        ahead: 0,
+        behind: 0,
+      },
+    };
+
+    setTauriBridgeAdapter({
+      invoke: async <T,>(cmd: string, args?: Record<string, unknown>) => {
+        calls.push({ cmd, args });
+        if (cmd === 'get_git_sync_status_cmd') {
+          return statusState as T;
+        }
+        if (cmd === 'inspect_git_sync_folder_cmd') {
+          return {
+            exists: true,
+            isEmpty: false,
+            hasRiftqlWorkspace: true,
+            collectionCount: 1,
+            environmentCount: 1,
+            git: statusState.git,
+          } as T;
+        }
+        if (cmd === 'update_git_sync_options_cmd') {
+          statusState = {
+            ...statusState,
+            autoSync: Boolean(args?.autoSync),
+            autoPush: Boolean(args?.autoPush),
+            autoPushDelaySecs: Number(args?.autoPushDelaySecs ?? 15),
+            autoFetch: Boolean(args?.autoFetch),
+            autoFetchIntervalMins: Number(args?.autoFetchIntervalMins ?? 5),
+            fetchSnoozeMins: Number(args?.fetchSnoozeMins ?? 30),
+          };
+          return statusState as T;
+        }
+        if (cmd === 'git_fetch_workspace_cmd') {
+          const update = {
+            repoName: 'team-repo',
+            branch: 'main',
+            remoteUrl: statusState.remoteUrl,
+            behind: 1,
+            ahead: 0,
+            changedFiles: 0,
+            remoteHead: 'deadbeef',
+            commits: [
+              { hash: 'deadbeef', author: 'Luis', message: 'chore: add endpoint', date: '1m ago' },
+            ],
+          };
+          statusState = {
+            ...statusState,
+            git: { ...statusState.git, behind: 1 },
+          };
+          return {
+            status: { ...statusState, remoteUpdate: update },
+            message: 'Found 1 new commit on origin/main.',
+            workspaceReloaded: false,
+          } as T;
+        }
+        return undefined as T;
+      },
+      openFile: vi.fn(async () => null),
+      saveFile: vi.fn(async () => null),
+    });
+
+    render(
+      <TooltipProvider>
+        <SettingsModal
+          open
+          onOpenChange={() => {}}
+          onRemoteUpdateFound={onRemoteUpdateFound}
+        />
+      </TooltipProvider>,
+    );
+
+    await user.click(screen.getByRole('tab', { name: /git sync/i }));
+
+    await user.click(
+      await screen.findByRole('switch', { name: /auto-commit and push changes to git/i }),
+    );
+    expect(
+      calls.some((c) => c.cmd === 'update_git_sync_options_cmd' && c.args?.autoPush === true),
+    ).toBe(true);
+
+    await user.click(
+      screen.getByRole('switch', { name: /auto-fetch remote git updates/i }),
+    );
+    expect(
+      calls.some((c) => c.cmd === 'update_git_sync_options_cmd' && c.args?.autoFetch === true),
+    ).toBe(true);
+
+    await user.click(screen.getByRole('button', { name: /fetch now/i }));
+    expect(calls.some((c) => c.cmd === 'git_fetch_workspace_cmd')).toBe(true);
+    expect(onRemoteUpdateFound).toHaveBeenCalledWith(
+      expect.objectContaining({ repoName: 'team-repo', behind: 1 }),
+    );
+  });
 });

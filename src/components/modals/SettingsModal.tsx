@@ -37,6 +37,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -65,6 +72,7 @@ import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import type { ShortcutActionId, ShortcutDefinition } from '@/types/shortcuts';
 import type {
   FolderInspection,
+  GitRemoteUpdateInfo,
   GitSyncActionResult,
   GitSyncMigrationMode,
   GitSyncStatus,
@@ -91,6 +99,7 @@ interface SettingsModalProps {
   onRecordingChange?: (recording: boolean) => void;
   initialTab?: SettingsTab;
   onGitSyncStatusChange?: (status: GitSyncStatus) => void;
+  onRemoteUpdateFound?: (info: GitRemoteUpdateInfo) => void;
   onOpenImportCollection?: () => void;
 }
 
@@ -100,6 +109,7 @@ export function SettingsModal({
   onRecordingChange,
   initialTab = 'general',
   onGitSyncStatusChange,
+  onRemoteUpdateFound,
   onOpenImportCollection,
 }: SettingsModalProps) {
   const settings = useSettingsStore((s) => s.settings);
@@ -134,6 +144,11 @@ export function SettingsModal({
   const [syncRemoteInput, setSyncRemoteInput] = React.useState('');
   const [syncBranchInput, setSyncBranchInput] = React.useState('');
   const [syncAutoSync, setSyncAutoSync] = React.useState(true);
+  const [syncAutoPush, setSyncAutoPush] = React.useState(false);
+  const [syncAutoPushDelaySecs, setSyncAutoPushDelaySecs] = React.useState(15);
+  const [syncAutoFetch, setSyncAutoFetch] = React.useState(false);
+  const [syncAutoFetchIntervalMins, setSyncAutoFetchIntervalMins] = React.useState(5);
+  const [syncFetchSnoozeMins, setSyncFetchSnoozeMins] = React.useState(30);
   const [migrationMode, setMigrationMode] =
     React.useState<GitSyncMigrationMode>('migrate-to-folder');
   const [initGitOnEnable, setInitGitOnEnable] = React.useState(true);
@@ -192,6 +207,11 @@ export function SettingsModal({
         setGitUsername(status.authUsername ?? '');
       }
       setSyncAutoSync(status.autoSync);
+      setSyncAutoPush(Boolean(status.autoPush));
+      setSyncAutoPushDelaySecs(status.autoPushDelaySecs ?? 15);
+      setSyncAutoFetch(Boolean(status.autoFetch));
+      setSyncAutoFetchIntervalMins(status.autoFetchIntervalMins ?? 5);
+      setSyncFetchSnoozeMins(status.fetchSnoozeMins ?? 30);
     },
     [onGitSyncStatusChange],
   );
@@ -535,12 +555,73 @@ export function SettingsModal({
     }
   };
 
+  const handleSaveAutomationOptions = async (patch: {
+    autoSync?: boolean;
+    autoPush?: boolean;
+    autoPushDelaySecs?: number;
+    autoFetch?: boolean;
+    autoFetchIntervalMins?: number;
+    fetchSnoozeMins?: number;
+  }) => {
+    const nextAutoSync = patch.autoSync ?? syncAutoSync;
+    const nextAutoPush = patch.autoPush ?? syncAutoPush;
+    const nextDelay = patch.autoPushDelaySecs ?? syncAutoPushDelaySecs;
+    const nextAutoFetch = patch.autoFetch ?? syncAutoFetch;
+    const nextFetchInterval = patch.autoFetchIntervalMins ?? syncAutoFetchIntervalMins;
+    const nextSnooze = patch.fetchSnoozeMins ?? syncFetchSnoozeMins;
+
+    setSyncAutoSync(nextAutoSync);
+    setSyncAutoPush(nextAutoPush);
+    setSyncAutoPushDelaySecs(nextDelay);
+    setSyncAutoFetch(nextAutoFetch);
+    setSyncAutoFetchIntervalMins(nextFetchInterval);
+    setSyncFetchSnoozeMins(nextSnooze);
+
+    if (!hasNativeFileBridge()) return;
+    setGitSyncError(null);
+    try {
+      const updated = await invokeCommand<GitSyncStatus>('update_git_sync_options_cmd', {
+        autoSync: nextAutoSync,
+        autoPush: nextAutoPush,
+        autoPushDelaySecs: nextDelay,
+        autoFetch: nextAutoFetch,
+        autoFetchIntervalMins: nextFetchInterval,
+        fetchSnoozeMins: nextSnooze,
+      });
+      if (updated && typeof updated.enabled === 'boolean') {
+        applyGitSyncStatus(updated);
+      }
+      setGitSyncMessage('Saved Git sync automation preferences.');
+    } catch (err) {
+      setGitSyncError(extractErrorMessage(err, 'Failed to save automation settings.'));
+    }
+  };
+
+  const handleGitFetchNow = async () => {
+    setGitSyncBusy(true);
+    setGitSyncError(null);
+    setGitSyncMessage(null);
+    try {
+      const result = await invokeCommand<GitSyncActionResult>('git_fetch_workspace_cmd');
+      await handleSyncActionResult(result);
+      if (result.status.remoteUpdate) {
+        onRemoteUpdateFound?.(result.status.remoteUpdate);
+      }
+    } catch (err) {
+      setGitSyncError(extractErrorMessage(err, 'Git fetch failed.'));
+    } finally {
+      setGitSyncBusy(false);
+    }
+  };
+
   const handleGitPull = async () => {
     setGitSyncBusy(true);
     setGitSyncError(null);
     setGitSyncMessage(null);
     try {
-      const result = await invokeCommand<GitSyncActionResult>('git_pull_workspace_cmd');
+      const result = await invokeCommand<GitSyncActionResult>('git_pull_workspace_cmd', {
+        rebase: false,
+      });
       await handleSyncActionResult(result);
     } catch (err) {
       setGitSyncError(extractErrorMessage(err, 'Git pull failed.'));
@@ -1431,21 +1512,145 @@ export function SettingsModal({
                     </div>
                   )}
 
-                  <label className="flex cursor-pointer items-center justify-between gap-2 border-t border-[var(--border-subtle)] pt-2">
-                    <div>
-                      <div className="text-xs font-medium text-[var(--text-primary)]">
-                        Auto-Sync Changes to Folder
+                  <div className="flex flex-col gap-2.5 border-t border-[var(--border-subtle)] pt-2.5">
+                    <label className="flex cursor-pointer items-center justify-between gap-2">
+                      <div>
+                        <div className="text-xs font-medium text-[var(--text-primary)]">
+                          Auto-Sync Changes to Folder
+                        </div>
+                        <div className="text-[0.75rem] text-[var(--text-secondary)]">
+                          Write JSON updates automatically when requests, folders, or environments change.
+                        </div>
                       </div>
-                      <div className="text-[0.75rem] text-[var(--text-secondary)]">
-                        Write JSON updates automatically when requests, folders, or environments change.
-                      </div>
+                      <Switch
+                        aria-label="Auto-sync workspace changes to disk"
+                        checked={syncAutoSync}
+                        onCheckedChange={(checked) =>
+                          void handleSaveAutomationOptions({ autoSync: checked })
+                        }
+                      />
+                    </label>
+
+                    <div className="flex flex-col gap-2 rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2.5">
+                      <label className="flex cursor-pointer items-center justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-medium text-[var(--text-primary)]">
+                            Auto-Commit &amp; Push Changes
+                          </div>
+                          <div className="text-[0.75rem] text-[var(--text-secondary)]">
+                            Automatically commit &amp; push edits to <code className="font-mono-code">origin</code> after a quiet delay.
+                          </div>
+                        </div>
+                        <Switch
+                          aria-label="Auto-commit and push changes to Git"
+                          disabled={!syncAutoSync}
+                          checked={syncAutoPush}
+                          onCheckedChange={(checked) =>
+                            void handleSaveAutomationOptions({ autoPush: checked })
+                          }
+                        />
+                      </label>
+                      {syncAutoPush && (
+                        <div className="flex items-center justify-between gap-2 pl-0.5 text-[0.75rem] text-[var(--text-secondary)]">
+                          <span>Quiet delay before committing &amp; pushing</span>
+                          <Select
+                            value={String(syncAutoPushDelaySecs)}
+                            onValueChange={(val) =>
+                              void handleSaveAutomationOptions({
+                                autoPushDelaySecs: Number(val),
+                              })
+                            }
+                          >
+                            <SelectTrigger
+                              aria-label="Auto-push delay"
+                              className="h-7 w-28 text-xs"
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="10">10 seconds</SelectItem>
+                              <SelectItem value="15">15 seconds</SelectItem>
+                              <SelectItem value="30">30 seconds</SelectItem>
+                              <SelectItem value="60">60 seconds</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
                     </div>
-                    <Switch
-                      aria-label="Auto-sync workspace changes to disk"
-                      checked={syncAutoSync}
-                      onCheckedChange={setSyncAutoSync}
-                    />
-                  </label>
+
+                    <div className="flex flex-col gap-2 rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2.5">
+                      <label className="flex cursor-pointer items-center justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-medium text-[var(--text-primary)]">
+                            Auto-Fetch Remote Updates
+                          </div>
+                          <div className="text-[0.75rem] text-[var(--text-secondary)]">
+                            Periodically check <code className="font-mono-code">origin</code> for new commits and notify before pulling.
+                          </div>
+                        </div>
+                        <Switch
+                          aria-label="Auto-fetch remote Git updates"
+                          checked={syncAutoFetch}
+                          onCheckedChange={(checked) =>
+                            void handleSaveAutomationOptions({ autoFetch: checked })
+                          }
+                        />
+                      </label>
+                      {syncAutoFetch && (
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <div className="flex items-center justify-between gap-2 text-[0.75rem] text-[var(--text-secondary)]">
+                            <span>Check every</span>
+                            <Select
+                              value={String(syncAutoFetchIntervalMins)}
+                              onValueChange={(val) =>
+                                void handleSaveAutomationOptions({
+                                  autoFetchIntervalMins: Number(val),
+                                })
+                              }
+                            >
+                              <SelectTrigger
+                                aria-label="Auto-fetch interval"
+                                className="h-7 w-28 text-xs"
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="1">1 min</SelectItem>
+                                <SelectItem value="5">5 min</SelectItem>
+                                <SelectItem value="15">15 min</SelectItem>
+                                <SelectItem value="30">30 min</SelectItem>
+                                <SelectItem value="60">60 min</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="flex items-center justify-between gap-2 text-[0.75rem] text-[var(--text-secondary)]">
+                            <span>Snooze duration</span>
+                            <Select
+                              value={String(syncFetchSnoozeMins)}
+                              onValueChange={(val) =>
+                                void handleSaveAutomationOptions({
+                                  fetchSnoozeMins: Number(val),
+                                })
+                              }
+                            >
+                              <SelectTrigger
+                                aria-label="Remote update snooze duration"
+                                className="h-7 w-28 text-xs"
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="15">15 min</SelectItem>
+                                <SelectItem value="30">30 min</SelectItem>
+                                <SelectItem value="60">60 min</SelectItem>
+                                <SelectItem value="120">2 hours</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 {/* Migration & Initialization Section */}
@@ -1646,6 +1851,16 @@ export function SettingsModal({
                               size="xs"
                               variant="secondary"
                               disabled={gitSyncBusy || !hasRemote}
+                              onClick={() => void handleGitFetchNow()}
+                            >
+                              <RefreshCw className={cn('h-3 w-3', gitSyncBusy && 'animate-spin')} />
+                              <span>Fetch Now</span>
+                            </Button>
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="secondary"
+                              disabled={gitSyncBusy || !hasRemote}
                               onClick={() => void handleGitPull()}
                             >
                               <ArrowDownToLine className="h-3 w-3" />
@@ -1691,9 +1906,25 @@ export function SettingsModal({
                       );
                     })()}
 
-                    {gitSyncStatus?.lastSyncedAt && (
-                      <div className="text-[0.6875rem] text-[var(--text-tertiary)]">
-                        Last synced: {new Date(gitSyncStatus.lastSyncedAt).toLocaleString()}
+                    {(gitSyncStatus?.lastSyncedAt ||
+                      gitSyncStatus?.lastFetchedAt ||
+                      gitSyncStatus?.lastFetchError) && (
+                      <div className="flex flex-wrap gap-3 text-[0.6875rem] text-[var(--text-tertiary)]">
+                        {gitSyncStatus.lastSyncedAt && (
+                          <span>
+                            Last synced: {new Date(gitSyncStatus.lastSyncedAt).toLocaleString()}
+                          </span>
+                        )}
+                        {gitSyncStatus.lastFetchedAt && (
+                          <span>
+                            Last fetched: {new Date(gitSyncStatus.lastFetchedAt).toLocaleString()}
+                          </span>
+                        )}
+                        {gitSyncStatus.lastFetchError && (
+                          <span className="text-[#D97706] dark:text-[#FBBF24]">
+                            Last auto-fetch offline/failed: {gitSyncStatus.lastFetchError}
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>

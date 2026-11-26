@@ -10,15 +10,38 @@ import {
   isObjectType,
   isScalarType,
   isUnionType,
+  Kind,
   parse,
   print,
+  type FragmentDefinitionNode,
   type GraphQLDefaultInput,
   type GraphQLInputType,
   type GraphQLOutputType,
   type GraphQLSchema,
   type IntrospectionQuery,
   type OperationDefinitionNode,
+  type SelectionSetNode,
 } from 'graphql';
+import type { FolderRecord, SavedRequestRecord } from '@/types/storage';
+
+export const AUTO_DISCOVERED_FOLDER_NAME = 'AUTO-DISCOVERED';
+
+export interface CoveredRootField {
+  kind: 'query' | 'mutation';
+  fieldName: string;
+}
+
+export interface DiscoveredGraphQLOperation {
+  key: string;
+  kind: 'query' | 'mutation';
+  fieldName: string;
+  operationName: string;
+  description?: string;
+  isDeprecated: boolean;
+  argsCount: number;
+  alreadyExists: boolean;
+  existingRequestNames: string[];
+}
 
 export const INTROSPECTION_QUERY = getIntrospectionQuery({
   descriptions: true,
@@ -493,4 +516,153 @@ export function mergeVariablesJson(
   }
 
   return JSON.stringify(merged, null, 2);
+}
+
+function collectSelectionRootFields(
+  selectionSet: SelectionSetNode | undefined,
+  fragments: Map<string, FragmentDefinitionNode>,
+  visitedFragments: Set<string>,
+  out: Set<string>,
+): void {
+  if (!selectionSet) return;
+  for (const sel of selectionSet.selections) {
+    if (sel.kind === Kind.FIELD) {
+      if (!sel.name.value.startsWith('__')) {
+        out.add(sel.name.value);
+      }
+    } else if (sel.kind === Kind.INLINE_FRAGMENT) {
+      collectSelectionRootFields(sel.selectionSet, fragments, visitedFragments, out);
+    } else if (sel.kind === Kind.FRAGMENT_SPREAD) {
+      const fragName = sel.name.value;
+      if (visitedFragments.has(fragName)) continue;
+      const frag = fragments.get(fragName);
+      if (!frag) continue;
+      const nextVisited = new Set(visitedFragments).add(fragName);
+      collectSelectionRootFields(frag.selectionSet, fragments, nextVisited, out);
+    }
+  }
+}
+
+/**
+ * Extracts all root Query/Mutation field names invoked by a GraphQL document,
+ * resolving root inline fragments and fragment spreads while ignoring introspection fields.
+ */
+export function extractCoveredRootFields(querySource: string): CoveredRootField[] {
+  if (!querySource.trim()) return [];
+  try {
+    const doc = parse(querySource);
+    const fragments = new Map<string, FragmentDefinitionNode>();
+    for (const def of doc.definitions) {
+      if (def.kind === Kind.FRAGMENT_DEFINITION) {
+        fragments.set(def.name.value, def);
+      }
+    }
+
+    const covered: CoveredRootField[] = [];
+    const seenKeys = new Set<string>();
+    for (const def of doc.definitions) {
+      if (def.kind !== Kind.OPERATION_DEFINITION) continue;
+      if (def.operation !== 'query' && def.operation !== 'mutation') continue;
+      const rootFields = new Set<string>();
+      collectSelectionRootFields(def.selectionSet, fragments, new Set(), rootFields);
+      for (const fieldName of rootFields) {
+        const key = `${def.operation}:${fieldName}`;
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          covered.push({ kind: def.operation, fieldName });
+        }
+      }
+    }
+    return covered;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Collects all folder IDs within a collection subtree (`!rootFolderId` = entire collection).
+ */
+export function collectDescendantFolderIds(
+  folders: FolderRecord[],
+  collectionId: string,
+  rootFolderId?: string,
+): Set<string> {
+  const result = new Set<string>();
+  if (!rootFolderId) {
+    for (const folder of folders) {
+      if (folder.collectionId === collectionId) {
+        result.add(folder.id);
+      }
+    }
+    return result;
+  }
+
+  result.add(rootFolderId);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const folder of folders) {
+      if (
+        folder.collectionId === collectionId &&
+        folder.parentId &&
+        result.has(folder.parentId) &&
+        !result.has(folder.id)
+      ) {
+        result.add(folder.id);
+        changed = true;
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Compares all root Queries and Mutations in a GraphQL schema against existing GraphQL requests
+ * in a collection/folder subtree using AST inspection (independent of request titles).
+ */
+export function discoverSchemaOperations(
+  schema: GraphQLSchema,
+  existingRequests: SavedRequestRecord[],
+): DiscoveredGraphQLOperation[] {
+  const coveredMap = new Map<string, Set<string>>();
+
+  for (const req of existingRequests) {
+    if (req.protocol !== 'graphql' && req.body.mode !== 'graphql') continue;
+    const fields = extractCoveredRootFields(req.graphql.query);
+    for (const f of fields) {
+      const key = `${f.kind}:${f.fieldName}`;
+      let names = coveredMap.get(key);
+      if (!names) {
+        names = new Set<string>();
+        coveredMap.set(key, names);
+      }
+      names.add(req.name);
+    }
+  }
+
+  const out: DiscoveredGraphQLOperation[] = [];
+  const collectKind = (kind: 'query' | 'mutation', rootType: ReturnType<GraphQLSchema['getQueryType']>) => {
+    if (!rootType) return;
+    const fields = Object.values(rootType.getFields()).sort((a, b) => a.name.localeCompare(b.name));
+    for (const field of fields) {
+      if (field.name.startsWith('__')) continue;
+      const key = `${kind}:${field.name}`;
+      const existingNames = Array.from(coveredMap.get(key) ?? []);
+      out.push({
+        key,
+        kind,
+        fieldName: field.name,
+        operationName: toOperationName(field.name),
+        description: field.description ?? undefined,
+        isDeprecated: Boolean(field.deprecationReason),
+        argsCount: field.args.length,
+        alreadyExists: existingNames.length > 0,
+        existingRequestNames: existingNames,
+      });
+    }
+  };
+
+  collectKind('query', schema.getQueryType());
+  collectKind('mutation', schema.getMutationType());
+  return out;
 }

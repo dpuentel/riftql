@@ -18,6 +18,7 @@ import {
   Search,
   Settings,
   SlidersHorizontal,
+  Sparkles,
   Trash2,
   X,
 } from 'lucide-react';
@@ -32,6 +33,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { Input } from '@/components/ui/input';
+import { resolveEffectiveBaseUrl } from '@/lib/base-url';
 import {
   formatDuration,
   formatRelativeTime,
@@ -109,7 +111,9 @@ interface SidebarProps {
   onOpenCookies: () => void;
   onOpenSettings: () => void;
   onOpenGitSyncSettings?: () => void;
+  onOpenRemoteUpdates?: () => void;
   onOpenImportCollection?: (target?: { collectionId?: string; folderId?: string }) => void;
+  onDiscoverGraphQL?: (target: { collectionId: string; folderId?: string }) => void;
   gitSyncStatus?: GitSyncStatus | null;
   onEditCollection: (collection: CollectionRecord) => void;
   onEditFolder: (folder: FolderRecord) => void;
@@ -155,7 +159,9 @@ export function Sidebar({
   onOpenCookies,
   onOpenSettings,
   onOpenGitSyncSettings,
+  onOpenRemoteUpdates,
   onOpenImportCollection,
+  onDiscoverGraphQL,
   gitSyncStatus,
   onEditCollection,
   onEditFolder,
@@ -540,6 +546,9 @@ export function Sidebar({
             draggedItem?.kind === 'folder' && draggedItem.id === folder.id;
           const isFolderDropActive =
             dropTarget?.kind === 'folder' && dropTarget.folderId === folder.id;
+          const folderHasBaseUrl = Boolean(
+            resolveEffectiveBaseUrl(folder.id, collectionId, folders, collections).baseUrl.trim(),
+          );
 
           return (
             <div key={folder.id}>
@@ -691,6 +700,18 @@ export function Sidebar({
                               <SlidersHorizontal className="h-3 w-3" />
                             </button>
                           </ActionTooltip>
+                          {onDiscoverGraphQL && folderHasBaseUrl && (
+                            <ActionTooltip label="Discover GraphQL Schema">
+                              <button
+                                type="button"
+                                aria-label={`Discover GraphQL schema for ${folder.name}`}
+                                onClick={() => onDiscoverGraphQL({ collectionId, folderId: folder.id })}
+                                className="inline-flex h-5 w-5 items-center justify-center rounded text-[#E879F9] hover:bg-[var(--bg-elevated)]"
+                              >
+                                <Sparkles className="h-3 w-3" />
+                              </button>
+                            </ActionTooltip>
+                          )}
                           <ActionTooltip label="Delete Folder">
                             <button
                               type="button"
@@ -739,6 +760,13 @@ export function Sidebar({
                   <ContextMenuItem onSelect={() => onEditFolder(folder)}>
                     Folder Settings / Auth
                   </ContextMenuItem>
+                  {onDiscoverGraphQL && folderHasBaseUrl && (
+                    <ContextMenuItem
+                      onSelect={() => onDiscoverGraphQL({ collectionId, folderId: folder.id })}
+                    >
+                      Discover GraphQL Schema…
+                    </ContextMenuItem>
+                  )}
                   <ContextMenuSeparator />
                   <ContextMenuItem
                     onSelect={() => void handleDeleteFolder(folder.id)}
@@ -1188,6 +1216,18 @@ export function Sidebar({
                                       <SlidersHorizontal className="h-3 w-3" />
                                     </button>
                                   </ActionTooltip>
+                                  {onDiscoverGraphQL && Boolean(col.baseUrl?.trim()) && (
+                                    <ActionTooltip label="Discover GraphQL Schema">
+                                      <button
+                                        type="button"
+                                        aria-label={`Discover GraphQL schema for ${col.name}`}
+                                        onClick={() => onDiscoverGraphQL({ collectionId: col.id })}
+                                        className="inline-flex h-5 w-5 items-center justify-center rounded text-[#E879F9] hover:bg-[var(--bg-elevated)]"
+                                      >
+                                        <Sparkles className="h-3 w-3" />
+                                      </button>
+                                    </ActionTooltip>
+                                  )}
                                   <ActionTooltip label="Delete Collection">
                                     <button
                                       type="button"
@@ -1238,6 +1278,13 @@ export function Sidebar({
                           <ContextMenuItem onSelect={() => onEditCollection(col)}>
                             Collection Settings &amp; Auth
                           </ContextMenuItem>
+                          {onDiscoverGraphQL && Boolean(col.baseUrl?.trim()) && (
+                            <ContextMenuItem
+                              onSelect={() => onDiscoverGraphQL({ collectionId: col.id })}
+                            >
+                              Discover GraphQL Schema…
+                            </ContextMenuItem>
+                          )}
                           <ContextMenuSeparator />
                           <ContextMenuItem
                             onSelect={() => void handleDeleteCollection(col.id)}
@@ -1383,33 +1430,58 @@ export function Sidebar({
 
         <div className="flex items-center gap-0.5">
           {gitSyncStatus?.enabled && (
-            <ActionTooltip
-              label={
-                gitSyncStatus.lastError
-                  ? `Git Sync Error: ${gitSyncStatus.lastError}`
-                  : `Git Sync Active: ${gitSyncStatus.folderPath ?? ''}`
-              }
-              side="top"
-            >
-              <Button
-                size="xs"
-                variant="ghost"
-                aria-label="Open Git Sync Settings"
-                onClick={onOpenGitSyncSettings ?? onOpenSettings}
-                className="max-w-[7rem] gap-1 px-1.5 font-mono-code text-[0.6875rem]"
+            <>
+              <ActionTooltip
+                label={
+                  gitSyncStatus.isPushing
+                    ? 'Pushing changes to Git remote…'
+                    : gitSyncStatus.lastError
+                      ? `Git Sync Error: ${gitSyncStatus.lastError}`
+                      : `Git Sync Active: ${gitSyncStatus.folderPath ?? ''}`
+                }
+                side="top"
               >
-                <span
-                  className={cn(
-                    'h-1.5 w-1.5 shrink-0 rounded-full',
-                    gitSyncStatus.lastError ? 'bg-[#F87171]' : 'bg-[#34D399]',
-                  )}
-                />
-                <GitBranch className="h-3 w-3 shrink-0 text-[var(--accent)]" />
-                <span className="truncate">
-                  {gitSyncStatus.git.branch || 'Synced'}
-                </span>
-              </Button>
-            </ActionTooltip>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  aria-label="Open Git Sync Settings"
+                  onClick={onOpenGitSyncSettings ?? onOpenSettings}
+                  className="max-w-[7rem] gap-1 px-1.5 font-mono-code text-[0.6875rem]"
+                >
+                  <span
+                    className={cn(
+                      'h-1.5 w-1.5 shrink-0 rounded-full',
+                      gitSyncStatus.isPushing
+                        ? 'animate-pulse bg-[#60A5FA]'
+                        : gitSyncStatus.lastError
+                          ? 'bg-[#F87171]'
+                          : 'bg-[#34D399]',
+                    )}
+                  />
+                  <GitBranch className="h-3 w-3 shrink-0 text-[var(--accent)]" />
+                  <span className="truncate">
+                    {gitSyncStatus.isPushing
+                      ? 'Pushing…'
+                      : gitSyncStatus.git.branch || 'Synced'}
+                  </span>
+                </Button>
+              </ActionTooltip>
+              {(gitSyncStatus.remoteUpdate?.behind ?? gitSyncStatus.git.behind) > 0 && (
+                <ActionTooltip
+                  label={`${gitSyncStatus.remoteUpdate?.behind ?? gitSyncStatus.git.behind} incoming commit(s) on remote — click to review & pull`}
+                  side="top"
+                >
+                  <button
+                    type="button"
+                    aria-label="Review remote Git updates"
+                    onClick={onOpenRemoteUpdates ?? onOpenGitSyncSettings ?? onOpenSettings}
+                    className="inline-flex h-5 cursor-pointer items-center rounded border border-[#60A5FA]/40 bg-[#60A5FA]/15 px-1.5 font-mono-code text-[0.6875rem] font-semibold text-[#2563EB] hover:bg-[#60A5FA]/25 dark:text-[#60A5FA] tabular-nums"
+                  >
+                    ↓{gitSyncStatus.remoteUpdate?.behind ?? gitSyncStatus.git.behind}
+                  </button>
+                </ActionTooltip>
+              )}
+            </>
           )}
 
           <ActionTooltip label="Open Settings" actionId="openSettings" side="top">

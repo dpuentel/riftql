@@ -1,15 +1,20 @@
 import { buildSchema, graphqlSync } from 'graphql';
 import { describe, expect, it } from 'vitest';
 import {
+  AUTO_DISCOVERED_FOLDER_NAME,
   INTROSPECTION_QUERY,
   appendOperationToDocument,
   buildOperationFromField,
   buildSchemaFromIntrospection,
+  collectDescendantFolderIds,
+  discoverSchemaOperations,
+  extractCoveredRootFields,
   extractOperations,
   extractSchemaSummary,
   formatGraphQL,
   mergeVariablesJson,
 } from '@/lib/graphql';
+import type { FolderRecord, SavedRequestRecord } from '@/types/storage';
 
 describe('GraphQL utilities', () => {
   const sdl = `
@@ -146,5 +151,60 @@ describe('GraphQL utilities', () => {
 
     const mergedVars = mergeVariablesJson('{"id":"42"}', { id: '', includeInactive: false });
     expect(JSON.parse(mergedVars)).toEqual({ id: '42', includeInactive: false });
+  });
+
+  it('extracts root Query/Mutation fields through fragments and discovers missing schema operations', () => {
+    const schema = buildSchema(sdl);
+
+    // Handles inline fragments, fragment spreads, and cycle guard
+    const fields = extractCoveredRootFields(`
+      fragment UserFields on Query { user(id: "1") { id name } ...Cycle }
+      fragment Cycle on Query { ...UserFields }
+      query RenamedProfileQuery {
+        ...UserFields
+        ... on Query { __typename }
+      }
+    `);
+    expect(fields).toEqual([{ kind: 'query', fieldName: 'user' }]);
+
+    const existingReqs: SavedRequestRecord[] = [
+      {
+        id: 'req-renamed',
+        collectionId: 'col-1',
+        folderId: 'fld-sub',
+        name: 'Perfil de usuario', // Renamed by user! Still covers `query:user`
+        protocol: 'graphql',
+        method: 'POST',
+        url: '',
+        params: [],
+        headers: [],
+        auth: { type: 'inherit' },
+        body: { mode: 'graphql' },
+        graphql: {
+          query: 'query CustomProfile { user(id: "1") { id } }',
+          variables: '{}',
+        },
+        settings: {},
+        sortOrder: 0,
+        createdAt: '',
+        updatedAt: '',
+      },
+    ];
+
+    const discovered = discoverSchemaOperations(schema, existingReqs);
+    expect(AUTO_DISCOVERED_FOLDER_NAME).toBe('AUTO-DISCOVERED');
+    expect(discovered.find((o) => o.key === 'query:user')).toMatchObject({
+      alreadyExists: true,
+      existingRequestNames: ['Perfil de usuario'],
+    });
+    expect(discovered.find((o) => o.key === 'query:users')?.alreadyExists).toBe(false);
+    expect(discovered.find((o) => o.key === 'mutation:renameUser')?.alreadyExists).toBe(false);
+
+    const folders: FolderRecord[] = [
+      { id: 'f1', collectionId: 'col-1', name: 'Root', auth: { type: 'inherit' }, sortOrder: 0, createdAt: '', updatedAt: '' },
+      { id: 'f2', collectionId: 'col-1', parentId: 'f1', name: 'Child', auth: { type: 'inherit' }, sortOrder: 0, createdAt: '', updatedAt: '' },
+      { id: 'f3', collectionId: 'col-2', name: 'Other', auth: { type: 'inherit' }, sortOrder: 0, createdAt: '', updatedAt: '' },
+    ];
+    expect(Array.from(collectDescendantFolderIds(folders, 'col-1', 'f1')).sort()).toEqual(['f1', 'f2']);
   });
 });

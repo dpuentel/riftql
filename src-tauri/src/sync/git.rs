@@ -6,8 +6,23 @@ use std::process::Command;
 use std::os::windows::process::CommandExt;
 
 use crate::error::{AppError, AppResult};
-use crate::models::{GitCredentials, GitRepoStatus};
+use crate::models::{GitCredentials, GitRemoteCommitSummary, GitRemoteUpdateInfo, GitRepoStatus};
 use crate::sync::fs_layout::ensure_gitignore;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PullStrategy {
+    FastForwardOnly,
+    RebaseAutostash,
+}
+
+pub fn is_non_fast_forward_error(err: &AppError) -> bool {
+    let lower = err.to_string().to_ascii_lowercase();
+    lower.contains("non-fast-forward")
+        || lower.contains("fetch first")
+        || lower.contains("[rejected]")
+        || lower.contains("updates were rejected")
+        || lower.contains("cannot lock ref")
+}
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -156,6 +171,42 @@ pub fn git_version() -> Option<String> {
     run_git(None, &["--version"]).ok()
 }
 
+fn resolve_upstream_ref(dir: &Path, branch: Option<&str>) -> Option<String> {
+    if let Ok(upstream) = run_git(
+        Some(dir),
+        &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+    ) {
+        if !upstream.trim().is_empty() {
+            return Some(upstream.trim().to_string());
+        }
+    }
+    if let Some(b) = branch.map(str::trim).filter(|s| !s.is_empty()) {
+        let candidate = format!("origin/{b}");
+        let verify_ref = format!("refs/remotes/{candidate}");
+        if run_git(Some(dir), &["rev-parse", "--verify", "--quiet", &verify_ref]).is_ok() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn extract_repo_name(dir: &Path, remote_url: Option<&str>) -> String {
+    if let Some(url) = remote_url {
+        let cleaned = url.trim().trim_end_matches('/');
+        if let Some(last) = cleaned.rsplit(['/', ':']).next() {
+            let trimmed = last.strip_suffix(".git").unwrap_or(last);
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+    }
+    dir.file_name()
+        .and_then(|n| n.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("Workspace")
+        .to_string()
+}
+
 pub fn inspect_repo(dir: &Path) -> GitRepoStatus {
     let Some(version) = git_version() else {
         return GitRepoStatus::default();
@@ -208,18 +259,19 @@ pub fn inspect_repo(dir: &Path) -> GitRepoStatus {
         .map(|out| out.lines().filter(|l| !l.trim().is_empty()).count())
         .unwrap_or(0);
 
-    let (behind, ahead) = run_git(
-        Some(dir),
-        &["rev-list", "--left-right", "--count", "@{upstream}...HEAD"],
-    )
-    .ok()
-    .and_then(|out| {
-        let mut parts = out.split_whitespace();
-        let behind = parts.next()?.parse::<usize>().ok()?;
-        let ahead = parts.next()?.parse::<usize>().ok()?;
-        Some((behind, ahead))
-    })
-    .unwrap_or((0, 0));
+    let (behind, ahead) = resolve_upstream_ref(dir, branch.as_deref())
+        .and_then(|upstream| {
+            let range = format!("{upstream}...HEAD");
+            run_git(Some(dir), &["rev-list", "--left-right", "--count", &range])
+                .ok()
+                .and_then(|out| {
+                    let mut parts = out.split_whitespace();
+                    let b = parts.next()?.parse::<usize>().ok()?;
+                    let a = parts.next()?.parse::<usize>().ok()?;
+                    Some((b, a))
+                })
+        })
+        .unwrap_or((0, 0));
 
     GitRepoStatus {
         git_available: true,
@@ -231,6 +283,82 @@ pub fn inspect_repo(dir: &Path) -> GitRepoStatus {
         ahead,
         behind,
     }
+}
+
+pub fn fetch_repo(
+    dir: &Path,
+    creds: Option<&GitCredentials>,
+) -> AppResult<Option<GitRemoteUpdateInfo>> {
+    let before = inspect_repo(dir);
+    if !before.git_available {
+        return Err(AppError::Git(
+            "Git CLI is not installed or not available in PATH".to_string(),
+        ));
+    }
+    if !before.is_git_repo {
+        return Err(AppError::Validation(
+            "Selected folder is not a Git repository".to_string(),
+        ));
+    }
+    if before.remote_url.is_none() {
+        return Err(AppError::Validation(
+            "No 'origin' Git remote configured yet".to_string(),
+        ));
+    }
+
+    run_git_with_auth(Some(dir), &["fetch", "origin", "--prune"], creds)?;
+    let status = inspect_repo(dir);
+    let Some(upstream) = resolve_upstream_ref(dir, status.branch.as_deref()) else {
+        return Ok(None);
+    };
+    if status.behind == 0 {
+        return Ok(None);
+    }
+
+    let remote_head = run_git(Some(dir), &["rev-parse", "--short", &upstream]).unwrap_or_default();
+    let log_range = format!("HEAD..{upstream}");
+    let raw_log = run_git(
+        Some(dir),
+        &[
+            "log",
+            "--max-count=8",
+            "--pretty=format:%h%x1f%an%x1f%s%x1f%ar",
+            &log_range,
+        ],
+    )
+    .unwrap_or_default();
+
+    let commits = raw_log
+        .lines()
+        .filter_map(|line| {
+            let mut cols = line.split('\u{001f}');
+            let hash = cols.next()?.trim().to_string();
+            let author = cols.next().unwrap_or_default().trim().to_string();
+            let message = cols.next().unwrap_or_default().trim().to_string();
+            let date = cols.next().unwrap_or_default().trim().to_string();
+            if hash.is_empty() && message.is_empty() {
+                None
+            } else {
+                Some(GitRemoteCommitSummary {
+                    hash,
+                    author,
+                    message,
+                    date,
+                })
+            }
+        })
+        .collect();
+
+    Ok(Some(GitRemoteUpdateInfo {
+        repo_name: extract_repo_name(dir, status.remote_url.as_deref()),
+        branch: status.branch.unwrap_or_else(|| upstream.clone()),
+        remote_url: status.remote_url,
+        behind: status.behind,
+        ahead: status.ahead,
+        changed_files: status.changed_files,
+        commits,
+        remote_head,
+    }))
 }
 
 pub fn init_repo(
@@ -336,7 +464,11 @@ pub fn clone_repo(
     Ok(())
 }
 
-pub fn pull_repo(dir: &Path, creds: Option<&GitCredentials>) -> AppResult<String> {
+pub fn pull_repo(
+    dir: &Path,
+    creds: Option<&GitCredentials>,
+    strategy: PullStrategy,
+) -> AppResult<String> {
     let status = inspect_repo(dir);
     if !status.git_available {
         return Err(AppError::Git(
@@ -353,7 +485,11 @@ pub fn pull_repo(dir: &Path, creds: Option<&GitCredentials>) -> AppResult<String
             "No 'origin' Git remote configured yet".to_string(),
         ));
     }
-    let out = run_git_with_auth(Some(dir), &["pull", "--ff-only"], creds)?;
+    let args: &[&str] = match strategy {
+        PullStrategy::FastForwardOnly => &["pull", "--ff-only"],
+        PullStrategy::RebaseAutostash => &["pull", "--rebase", "--autostash"],
+    };
+    let out = run_git_with_auth(Some(dir), args, creds)?;
     Ok(if out.is_empty() {
         "Pulled latest changes from origin.".to_string()
     } else {

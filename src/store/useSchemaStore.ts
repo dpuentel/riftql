@@ -20,11 +20,23 @@ export interface CachedSchemaEntry {
   error?: string;
 }
 
+interface ContainerSchemaResult {
+  schema?: GraphQLSchema;
+  endpoint: string;
+  error?: string;
+}
+
 interface SchemaState {
   byEndpoint: Record<string, CachedSchemaEntry>;
   getEntry: (endpoint: string) => CachedSchemaEntry | undefined;
   setSchema: (endpoint: string, schema: GraphQLSchema) => void;
   fetchSchemaForTab: (tab: RequestTab) => Promise<GraphQLSchema | undefined>;
+  fetchSchemaForContainer: (input: {
+    collectionId: string;
+    folderId?: string;
+    urlOverride?: string;
+    extraHeaders?: HeaderPair[];
+  }) => Promise<ContainerSchemaResult>;
 }
 
 export function resolveEndpointKey(
@@ -85,111 +97,153 @@ export const useSchemaStore = create<SchemaState>((set, get) => ({
   },
 
   fetchSchemaForTab: async (tab) => {
-    const settings = useSettingsStore.getState().settings;
-    const workspace = useWorkspaceStore.getState();
-    const globalEnv = workspace.environments.find((e) => e.isGlobal);
-    const activeEnv = settings.activeEnvironmentId
-      ? workspace.environments.find((e) => e.id === settings.activeEnvironmentId)
-      : undefined;
-    const collection = tab.collectionId
-      ? workspace.collections.find((c) => c.id === tab.collectionId)
-      : undefined;
+    const baseHeaders: HeaderPair[] = tab.draft.headers
+      .filter((h) => h.enabled && h.key.trim().length > 0)
+      .map((h) => ({ key: h.key.trim(), value: h.value }));
+    const res = await introspectEndpoint({
+      rawUrl: tab.draft.url,
+      collectionId: tab.collectionId,
+      folderId: tab.folderId,
+      rawAuth: tab.draft.auth,
+      rawHeaders: baseHeaders,
+      verifySslOverride: tab.draft.settings.verifySsl,
+      followRedirectsOverride: tab.draft.settings.followRedirects,
+      timeoutMsOverride: tab.draft.settings.timeoutMs,
+      sendCookiesOverride: tab.draft.settings.sendCookies,
+      set,
+      get,
+    });
+    return res.schema;
+  },
 
-    const varCtx: VariableResolutionContext = {
-      globalEnvironment: globalEnv,
-      activeEnvironment: activeEnv,
-      collectionVariables: collection?.variables,
-    };
-    const resolve = (s: string) => resolveVariables(s, varCtx);
-    const endpoint = resolveEndpointKey(tab.draft.url, tab.collectionId, tab.folderId);
-    if (!endpoint) {
-      return undefined;
+  fetchSchemaForContainer: async ({ collectionId, folderId, urlOverride = '', extraHeaders = [] }) => {
+    return introspectEndpoint({
+      rawUrl: urlOverride,
+      collectionId,
+      folderId,
+      rawAuth: { type: 'inherit' },
+      rawHeaders: extraHeaders,
+      set,
+      get,
+    });
+  },
+}));
+
+async function introspectEndpoint(params: {
+  rawUrl: string;
+  collectionId?: string;
+  folderId?: string;
+  rawAuth: import('@/types/api').AuthConfig;
+  rawHeaders: HeaderPair[];
+  verifySslOverride?: boolean;
+  followRedirectsOverride?: boolean;
+  timeoutMsOverride?: number;
+  sendCookiesOverride?: boolean;
+  set: (partial: (state: SchemaState) => Partial<SchemaState>) => void;
+  get: () => SchemaState;
+}): Promise<ContainerSchemaResult> {
+  const settings = useSettingsStore.getState().settings;
+  const workspace = useWorkspaceStore.getState();
+  const globalEnv = workspace.environments.find((e) => e.isGlobal);
+  const activeEnv = settings.activeEnvironmentId
+    ? workspace.environments.find((e) => e.id === settings.activeEnvironmentId)
+    : undefined;
+  const collection = params.collectionId
+    ? workspace.collections.find((c) => c.id === params.collectionId)
+    : undefined;
+
+  const varCtx: VariableResolutionContext = {
+    globalEnvironment: globalEnv,
+    activeEnvironment: activeEnv,
+    collectionVariables: collection?.variables,
+  };
+  const resolve = (s: string) => resolveVariables(s, varCtx);
+  const endpoint = resolveEndpointKey(params.rawUrl, params.collectionId, params.folderId);
+  if (!endpoint) {
+    return { endpoint: '', error: 'No endpoint URL configured for introspection.' };
+  }
+
+  params.set((state) => ({
+    byEndpoint: {
+      ...state.byEndpoint,
+      [endpoint]: {
+        ...state.byEndpoint[endpoint],
+        loading: true,
+        error: undefined,
+      },
+    },
+  }));
+
+  try {
+    const resolvedHeaders: HeaderPair[] = params.rawHeaders.map((h) => ({
+      key: resolve(h.key.trim()),
+      value: resolve(h.value),
+    }));
+
+    const effectiveAuth = resolveEffectiveAuth(
+      params.rawAuth,
+      params.folderId,
+      params.collectionId,
+      workspace.folders,
+      workspace.collections,
+    );
+    const withAuth = applyAuthToRequest(effectiveAuth.auth, resolvedHeaders, [], resolve);
+
+    const response = await invokeCommand<HttpExecutionResponse>('send_http_request_cmd', {
+      request: {
+        requestId: `introspect-${Date.now()}`,
+        method: 'POST',
+        url: endpoint,
+        headers: withAuth.headers,
+        body: { mode: 'graphql' },
+        graphql: {
+          query: INTROSPECTION_QUERY,
+          variables: '{}',
+          operationName: 'IntrospectionQuery',
+        },
+        verifySsl: params.verifySslOverride ?? settings.verifySsl,
+        followRedirects: params.followRedirectsOverride ?? settings.followRedirects,
+        maxRedirects: settings.maxRedirects,
+        timeoutMs: params.timeoutMsOverride ?? settings.timeoutMs,
+        sendCookies: params.sendCookiesOverride ?? settings.sendCookies,
+      },
+    });
+
+    if (response.status >= 400) {
+      throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    }
+    if (!response.bodyText) {
+      throw new Error('Empty response returned from introspection endpoint');
     }
 
-    set((state) => ({
+    const schema = buildSchemaFromIntrospection(response.bodyText);
+    params.set((state) => ({
       byEndpoint: {
         ...state.byEndpoint,
         [endpoint]: {
-          ...state.byEndpoint[endpoint],
-          loading: true,
+          schema,
+          fetchedAt: new Date().toISOString(),
+          loading: false,
           error: undefined,
         },
       },
     }));
-
-    try {
-      const headers: HeaderPair[] = tab.draft.headers
-        .filter((h) => h.enabled && h.key.trim().length > 0)
-        .map((h) => ({
-          key: resolve(h.key.trim()),
-          value: resolve(h.value),
-        }));
-
-      const effectiveAuth = resolveEffectiveAuth(
-        tab.draft.auth,
-        tab.folderId,
-        tab.collectionId,
-        workspace.folders,
-        workspace.collections,
-      );
-      const withAuth = applyAuthToRequest(effectiveAuth.auth, headers, [], resolve);
-
-      const response = await invokeCommand<HttpExecutionResponse>('send_http_request_cmd', {
-        request: {
-          requestId: `introspect-${Date.now()}`,
-          method: 'POST',
-          url: endpoint,
-          headers: withAuth.headers,
-          body: { mode: 'graphql' },
-          graphql: {
-            query: INTROSPECTION_QUERY,
-            variables: '{}',
-            operationName: 'IntrospectionQuery',
-          },
-          verifySsl: tab.draft.settings.verifySsl ?? settings.verifySsl,
-          followRedirects: tab.draft.settings.followRedirects ?? settings.followRedirects,
-          maxRedirects: settings.maxRedirects,
-          timeoutMs: tab.draft.settings.timeoutMs ?? settings.timeoutMs,
-          sendCookies: tab.draft.settings.sendCookies ?? settings.sendCookies,
+    return { schema, endpoint };
+  } catch (err) {
+    const message =
+      err && typeof err === 'object' && 'message' in err
+        ? String((err as { message: unknown }).message)
+        : String(err);
+    params.set((state) => ({
+      byEndpoint: {
+        ...state.byEndpoint,
+        [endpoint]: {
+          ...state.byEndpoint[endpoint],
+          loading: false,
+          error: message,
         },
-      });
-
-      if (response.status >= 400) {
-        throw new Error(`HTTP ${response.status} ${response.statusText}`);
-      }
-      if (!response.bodyText) {
-        throw new Error('Empty response returned from introspection endpoint');
-      }
-
-      const schema = buildSchemaFromIntrospection(response.bodyText);
-      set((state) => ({
-        byEndpoint: {
-          ...state.byEndpoint,
-          [endpoint]: {
-            schema,
-            fetchedAt: new Date().toISOString(),
-            loading: false,
-            error: undefined,
-          },
-        },
-      }));
-      return schema;
-    } catch (err) {
-      const message =
-        err && typeof err === 'object' && 'message' in err
-          ? String((err as { message: unknown }).message)
-          : String(err);
-      set((state) => ({
-        byEndpoint: {
-          ...state.byEndpoint,
-          [endpoint]: {
-            ...state.byEndpoint[endpoint],
-            loading: false,
-            error: message,
-          },
-        },
-      }));
-      return undefined;
-    }
-  },
-}));
+      },
+    }));
+    return { endpoint, error: message };
+  }
+}

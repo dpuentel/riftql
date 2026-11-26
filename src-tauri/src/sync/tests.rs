@@ -729,3 +729,313 @@ fn git_https_credential_helper_supplies_credentials_and_persists_locally() {
     assert_eq!(cleared.auth_username, None);
     assert!(!app_data_dir.join(GIT_SYNC_CREDENTIALS_FILE).exists());
 }
+
+#[test]
+fn git_fetch_detects_remote_commits_and_pull_rebase_autostash_handles_local_changes() {
+    if git::git_version().is_none() {
+        return;
+    }
+
+    let temp = TempDir::new().unwrap();
+    let bare_remote = temp.path().join("remote.git");
+    let init_bare = Command::new("git")
+        .args(["init", "--bare"])
+        .arg(&bare_remote)
+        .output()
+        .unwrap();
+    assert!(init_bare.status.success());
+
+    // Machine A sets up workspace and pushes initial request
+    let app_a = temp.path().join("app-a");
+    let ws_a = temp.path().join("ws-a");
+    let db_a = Database::open_with_default_dir(app_a.clone()).unwrap();
+    let col_id = db_a
+        .with_conn(|conn| {
+            let col = upsert_collection(
+                conn,
+                None,
+                "Store".into(),
+                "".into(),
+                Some("https://store.test".into()),
+                AuthConfig::None,
+                vec![],
+                None,
+            )?;
+            upsert_saved_request(
+                conn,
+                None,
+                col.id.clone(),
+                None,
+                sample_rest_draft("List Products", "/products"),
+                None,
+            )?;
+            Ok(col.id)
+        })
+        .unwrap();
+
+    let mgr_a = GitSyncManager::new(app_a);
+    mgr_a
+        .configure_and_enable(
+            &db_a,
+            ws_a.to_string_lossy().to_string(),
+            Some(bare_remote.to_string_lossy().to_string()),
+            Some("main".to_string()),
+            GitSyncMigrationMode::MigrateToFolder,
+            true,
+            true,
+            None,
+            None,
+        )
+        .unwrap();
+    configure_git_identity(&ws_a);
+    mgr_a
+        .git_commit_push_workspace(&db_a, "feat: initial products".into(), true)
+        .unwrap();
+
+    // Machine B clones, commits a new collection/request, and pushes
+    let app_b = temp.path().join("app-b");
+    let ws_b = temp.path().join("ws-b");
+    let db_b = Database::open_with_default_dir(app_b.clone()).unwrap();
+    let mgr_b = GitSyncManager::new(app_b);
+    mgr_b
+        .configure_and_enable(
+            &db_b,
+            ws_b.to_string_lossy().to_string(),
+            Some(bare_remote.to_string_lossy().to_string()),
+            Some("main".to_string()),
+            GitSyncMigrationMode::CloneRepo,
+            false,
+            true,
+            None,
+            None,
+        )
+        .unwrap();
+    configure_git_identity(&ws_b);
+    db_b.with_conn(|conn| {
+        upsert_saved_request(
+            conn,
+            None,
+            col_id.clone(),
+            None,
+            sample_rest_draft("Create Order", "/orders"),
+            None,
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    mgr_b.on_workspace_mutated(&db_b);
+    mgr_b
+        .git_commit_push_workspace(&db_b, "feat: add Create Order request".into(), true)
+        .unwrap();
+
+    // Machine A makes a local uncommitted mutation (e.g., adds Refund request)
+    db_a.with_conn(|conn| {
+        upsert_saved_request(
+            conn,
+            None,
+            col_id.clone(),
+            None,
+            sample_rest_draft("Refund Order", "/refunds"),
+            None,
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    mgr_a.on_workspace_mutated(&db_a);
+
+    // Fetch detects incoming commit and uncommitted local changes cleanly
+    let fetch_res = mgr_a.git_fetch_workspace().unwrap();
+    let remote_update = fetch_res
+        .status
+        .remote_update
+        .expect("fetch should report incoming commits");
+    assert_eq!(remote_update.behind, 1);
+    assert!(remote_update.changed_files > 0);
+    assert_eq!(remote_update.commits.len(), 1);
+    assert!(remote_update.commits[0]
+        .message
+        .contains("add Create Order request"));
+
+    // Pull with rebase & autostash merges cleanly without losing Machine A's local edit
+    let pull_res = mgr_a.git_pull_workspace_with_strategy(&db_a, true).unwrap();
+    assert!(pull_res.workspace_reloaded);
+    assert!(pull_res.status.remote_update.is_none());
+
+    db_a.with_conn(|conn| {
+        let names: Vec<String> = list_saved_requests(conn)?
+            .into_iter()
+            .map(|r| r.name)
+            .collect();
+        assert!(names.contains(&"List Products".to_string()));
+        assert!(names.contains(&"Create Order".to_string()));
+        assert!(names.contains(&"Refund Order".to_string()));
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn git_auto_push_debounces_and_detects_non_fast_forward_divergence() {
+    if git::git_version().is_none() {
+        return;
+    }
+
+    let temp = TempDir::new().unwrap();
+    let bare_remote = temp.path().join("remote-auto.git");
+    let init_bare = Command::new("git")
+        .args(["init", "--bare"])
+        .arg(&bare_remote)
+        .output()
+        .unwrap();
+    assert!(init_bare.status.success());
+
+    let app_a = temp.path().join("app-a");
+    let ws_a = temp.path().join("ws-a");
+    let db_a = Database::open_with_default_dir(app_a.clone()).unwrap();
+    let col_id = db_a
+        .with_conn(|conn| {
+            let col = upsert_collection(
+                conn,
+                None,
+                "Core".into(),
+                "".into(),
+                None,
+                AuthConfig::None,
+                vec![],
+                None,
+            )?;
+            Ok(col.id)
+        })
+        .unwrap();
+
+    let mgr_a = GitSyncManager::new(app_a.clone());
+    mgr_a
+        .configure_and_enable(
+            &db_a,
+            ws_a.to_string_lossy().to_string(),
+            Some(bare_remote.to_string_lossy().to_string()),
+            Some("main".to_string()),
+            GitSyncMigrationMode::MigrateToFolder,
+            true,
+            true,
+            None,
+            None,
+        )
+        .unwrap();
+    configure_git_identity(&ws_a);
+    mgr_a
+        .git_commit_push_workspace(&db_a, "chore: init".into(), true)
+        .unwrap();
+
+    // Enable auto-push (5s delay) and persist config
+    let opts = mgr_a
+        .update_automation_options(true, true, 5, true, 5, 30)
+        .unwrap();
+    assert!(opts.auto_push);
+    assert!(opts.auto_fetch);
+    assert_eq!(opts.auto_push_delay_secs, 5);
+    assert_eq!(opts.fetch_snooze_mins, 30);
+
+    // Mutate SQLite -> schedules debounced auto-push
+    db_a.with_conn(|conn| {
+        upsert_saved_request(
+            conn,
+            None,
+            col_id.clone(),
+            None,
+            sample_rest_draft("Ping", "/ping"),
+            None,
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    mgr_a.on_workspace_mutated(&db_a);
+
+    // Before debounce expires, poll_auto_push returns None
+    assert!(mgr_a.poll_auto_push(&db_a).is_none());
+
+    // Fast-forward the debounce timestamp inside test
+    {
+        let mut guard = mgr_a.inner.lock().unwrap();
+        guard.pending_auto_push_since =
+            Some(std::time::Instant::now() - std::time::Duration::from_secs(10));
+    }
+
+    let pushed = mgr_a
+        .poll_auto_push(&db_a)
+        .expect("debounced auto-push should run");
+    assert!(pushed
+        .pushed_message
+        .as_deref()
+        .unwrap_or_default()
+        .contains("Pushed to origin"));
+    assert_eq!(pushed.status.git.changed_files, 0);
+
+    // Clone into Machine B, push a diverging commit
+    let app_b = temp.path().join("app-b");
+    let ws_b = temp.path().join("ws-b");
+    let db_b = Database::open_with_default_dir(app_b).unwrap();
+    let mgr_b = GitSyncManager::new(temp.path().join("app-b-cfg"));
+    mgr_b
+        .configure_and_enable(
+            &db_b,
+            ws_b.to_string_lossy().to_string(),
+            Some(bare_remote.to_string_lossy().to_string()),
+            Some("main".to_string()),
+            GitSyncMigrationMode::CloneRepo,
+            false,
+            true,
+            None,
+            None,
+        )
+        .unwrap();
+    configure_git_identity(&ws_b);
+    db_b.with_conn(|conn| {
+        upsert_saved_request(
+            conn,
+            None,
+            col_id.clone(),
+            None,
+            sample_rest_draft("Remote Op", "/remote"),
+            None,
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    mgr_b.on_workspace_mutated(&db_b);
+    mgr_b
+        .git_commit_push_workspace(&db_b, "feat: remote commit".into(), true)
+        .unwrap();
+
+    // Now Machine A mutates again -> auto-push is rejected (non-fast-forward) and surfaces remote_update
+    db_a.with_conn(|conn| {
+        upsert_saved_request(
+            conn,
+            None,
+            col_id.clone(),
+            None,
+            sample_rest_draft("Local Conflict Op", "/local"),
+            None,
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    mgr_a.on_workspace_mutated(&db_a);
+    {
+        let mut guard = mgr_a.inner.lock().unwrap();
+        guard.pending_auto_push_since =
+            Some(std::time::Instant::now() - std::time::Duration::from_secs(10));
+    }
+
+    let conflict_outcome = mgr_a
+        .poll_auto_push(&db_a)
+        .expect("non-fast-forward auto-push should report outcome");
+    assert!(conflict_outcome.error_message.is_some());
+    let fetched = conflict_outcome
+        .remote_update
+        .expect("non-fast-forward failure should fetch remote update details");
+    assert_eq!(fetched.behind, 1);
+
+    // Repeating poll without new edits must not retry endlessly for the same blocked fingerprint
+    assert!(mgr_a.poll_auto_push(&db_a).is_none());
+}
