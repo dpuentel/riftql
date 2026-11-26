@@ -6,6 +6,10 @@ node_modules/
 dist/
 dist-ssr/
 *.local
+website/dist/
+website/.astro/
+website/src/content/docs/
+website/src/data/meta.json
 
 # Tauri & Rust
 src-tauri/target/

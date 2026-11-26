@@ -1,0 +1,16 @@
+.git
+node_modules
+website/node_modules
+dist
+website/dist
+website/.astro
+src-tauri/target
+src-tauri/gen
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+coverage
+.vitest
+tickets

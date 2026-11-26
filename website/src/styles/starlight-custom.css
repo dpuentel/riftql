@@ -1,0 +1,41 @@
+:root {
+  --sl-font: "Inter Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --sl-font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --sl-color-accent-low: #ede9fe;
+  --sl-color-accent: #7c3aed;
+  --sl-color-accent-high: #4c1d95;
+
+  --sl-color-bg: #fafafa;
+  --sl-color-bg-nav: #ffffff;
+  --sl-color-bg-sidebar: #fafafa;
+  --sl-color-hairline-light: #e4e4e7;
+  --sl-color-hairline: #d4d4d8;
+}
+
+:root[data-theme="dark"] {
+  --sl-color-accent-low: rgba(139, 92, 246, 0.16);
+  --sl-color-accent: #8b5cf6;
+  --sl-color-accent-high: #c4b5fd;
+
+  --sl-color-white: #f4f4f5;
+  --sl-color-gray-1: #e4e4e7;
+  --sl-color-gray-2: #a1a1aa;
+  --sl-color-gray-3: #71717a;
+  --sl-color-gray-4: #3f3f46;
+  --sl-color-gray-5: #27272a;
+  --sl-color-gray-6: #121316;
+  --sl-color-black: #09090b;
+
+  --sl-color-bg: #09090b;
+  --sl-color-bg-nav: #121316;
+  --sl-color-bg-sidebar: #09090b;
+  --sl-color-hairline-light: #27272a;
+  --sl-color-hairline: #3f3f46;
+}
+
+code,
+kbd,
+pre {
+  font-variant-numeric: tabular-nums;
+}

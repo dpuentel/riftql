@@ -48,7 +48,7 @@ pnpm build
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-For full contributor setup, GitHub Actions workflows, and the automated `pnpm release` CLI, see [Development, CI & Releases](./docs/development-and-releases.md).
+For full contributor setup, GitHub Actions workflows, the automated `pnpm release` CLI, and the `website/` Astro landing + documentation deployment guide, see [Development, CI & Releases](./docs/development-and-releases.md).
 
 ---
 

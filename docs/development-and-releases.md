@@ -97,3 +97,34 @@ pnpm release patch --skip-checks # skip pnpm typecheck & pnpm test
 pnpm release patch --allow-dirty # allow uncommitted changes in working tree
 pnpm release --help             # show usage & current version
 ```
+
+---
+
+## Website & Documentation Site (`website/`)
+
+The public landing page and online docs live in [website/](../website/package.json), built with **Astro** + **Starlight** and sourcing content directly from [docs/](../docs/README.md) at build time via `website/scripts/sync-docs.mjs`.
+
+```bash
+# Install website dependencies
+pnpm --dir website install
+
+# Run local docs & landing dev server
+pnpm --dir website dev
+
+# Sync ../docs/*.md and build static HTML into website/dist/
+pnpm --dir website build
+
+# Preview locally with Docker Compose (http://localhost:8080)
+docker compose -f website/docker-compose.yml up --build
+```
+
+### Deploying to Dokploy
+
+- **Option A — Application (Dockerfile)** *(recommended)*:
+  - **Build Type:** `Dockerfile`
+  - **Docker Context Path:** `.` *(repository root so Docker accesses `package.json`, `docs/`, and `website/`)*
+  - **Dockerfile Path:** `website/Dockerfile`
+  - **Container Port:** `80`
+  - **Watch Paths:** `website/**`, `docs/**`
+- **Option B — Docker Compose:**
+  - **Compose Path:** `website/docker-compose.yml` (binds `${PORT:-8080}:80` with `context: ..` and `dockerfile: website/Dockerfile`).

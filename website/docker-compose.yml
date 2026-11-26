@@ -1,0 +1,8 @@
+services:
+  riftql-web:
+    build:
+      context: ..
+      dockerfile: website/Dockerfile
+    ports:
+      - "${PORT:-8080}:80"
+    restart: unless-stopped
