@@ -119,6 +119,14 @@ export function App() {
     notify.dismiss(REMOTE_UPDATE_TOAST_ID);
   }, []);
 
+  const handleGitSyncStatusChange = React.useCallback((nextStatus: GitSyncStatus) => {
+    setGitSyncStatus(nextStatus);
+    setRemoteUpdate(nextStatus.remoteUpdate ?? null);
+    if (!nextStatus.remoteUpdate) {
+      notify.dismiss(REMOTE_UPDATE_TOAST_ID);
+    }
+  }, []);
+
   const presentRemoteUpdateNotification = React.useCallback(
     (info: GitRemoteUpdateInfo, force = false) => {
       setRemoteUpdate(info);
@@ -546,13 +554,7 @@ export function App() {
               onOpenChange={setSettingsOpen}
               onRecordingChange={setRecordingShortcut}
               initialTab={settingsTab}
-              onGitSyncStatusChange={(nextStatus) => {
-                setGitSyncStatus(nextStatus);
-                setRemoteUpdate(nextStatus.remoteUpdate ?? null);
-                if (!nextStatus.remoteUpdate) {
-                  notify.dismiss(REMOTE_UPDATE_TOAST_ID);
-                }
-              }}
+              onGitSyncStatusChange={handleGitSyncStatusChange}
               onRemoteUpdateFound={(info) => presentRemoteUpdateNotification(info, true)}
               onOpenImportCollection={() => openImportCollection()}
             />

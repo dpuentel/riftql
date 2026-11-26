@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import * as React from 'react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsModal } from '@/components/modals/SettingsModal';
@@ -695,5 +696,66 @@ describe('SettingsModal', () => {
     expect(startupSwitch).toHaveAttribute('data-state', 'checked');
     await user.click(startupSwitch);
     expect(useSettingsStore.getState().settings.autoCheckUpdates).toBe(false);
+  });
+
+  it('keeps user-selected tabs active even when parent passes inline onGitSyncStatusChange and re-renders', async () => {
+    const user = userEvent.setup();
+    let gitStatusCalls = 0;
+
+    setTauriBridgeAdapter({
+      invoke: async <T,>(cmd: string) => {
+        if (cmd === 'get_git_sync_status_cmd') {
+          gitStatusCalls += 1;
+          return {
+            enabled: false,
+            autoSync: true,
+            git: {
+              gitAvailable: true,
+              isGitRepo: false,
+              changedFiles: 0,
+              ahead: 0,
+              behind: 0,
+            },
+          } as T;
+        }
+        throw new Error(`Tauri runtime unavailable for command "${cmd}"`);
+      },
+      openFile: vi.fn(async () => null),
+      saveFile: vi.fn(async () => null),
+    });
+
+    function StatefulSettingsHost() {
+      const [, setParentStateCount] = React.useState(0);
+      return (
+        <TooltipProvider>
+          <SettingsModal
+            open
+            onOpenChange={() => {}}
+            initialTab="general"
+            onGitSyncStatusChange={() => {
+              setParentStateCount((n) => n + 1);
+            }}
+          />
+        </TooltipProvider>
+      );
+    }
+
+    render(<StatefulSettingsHost />);
+
+    await waitFor(() => {
+      expect(gitStatusCalls).toBe(1);
+    });
+
+    const networkTab = screen.getByRole('tab', { name: /network/i });
+    await user.click(networkTab);
+    expect(networkTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('switch', { name: /verify ssl certificates/i })).toBeInTheDocument();
+
+    const updatesTab = screen.getByRole('tab', { name: /updates/i });
+    await user.click(updatesTab);
+    expect(updatesTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText(/current version/i)).toBeInTheDocument();
+
+    expect(gitStatusCalls).toBe(1);
   });
 });

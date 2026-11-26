@@ -178,6 +178,8 @@ export function SettingsModal({
   const [gitSyncMessage, setGitSyncMessage] = React.useState<string | null>(null);
   const [gitSyncError, setGitSyncError] = React.useState<string | null>(null);
   const importInputRef = React.useRef<HTMLInputElement | null>(null);
+  const onGitSyncStatusChangeRef = React.useRef(onGitSyncStatusChange);
+  onGitSyncStatusChangeRef.current = onGitSyncStatusChange;
 
   React.useEffect(() => {
     onRecordingChange?.(recordingId !== null);
@@ -206,31 +208,34 @@ export function SettingsModal({
     return null;
   }, []);
 
-  const applyGitSyncStatus = React.useCallback(
-    (status: GitSyncStatus) => {
-      setGitSyncStatus(status);
-      onGitSyncStatusChange?.(status);
-      if (status.folderPath !== undefined) {
-        setSyncFolderInput(status.folderPath ?? '');
-      }
-      if (status.remoteUrl !== undefined) {
-        setSyncRemoteInput(status.remoteUrl ?? '');
-      }
-      if (status.branch !== undefined) {
-        setSyncBranchInput(status.branch ?? '');
-      }
-      if (status.authUsername !== undefined) {
-        setGitUsername(status.authUsername ?? '');
-      }
-      setSyncAutoSync(status.autoSync);
-      setSyncAutoPush(Boolean(status.autoPush));
-      setSyncAutoPushDelaySecs(status.autoPushDelaySecs ?? 15);
-      setSyncAutoFetch(Boolean(status.autoFetch));
-      setSyncAutoFetchIntervalMins(status.autoFetchIntervalMins ?? 5);
-      setSyncFetchSnoozeMins(status.fetchSnoozeMins ?? 30);
-    },
-    [onGitSyncStatusChange],
-  );
+  const applyGitSyncStatus = React.useCallback((status: GitSyncStatus) => {
+    setGitSyncStatus(status);
+    onGitSyncStatusChangeRef.current?.(status);
+    if (status.folderPath !== undefined) {
+      setSyncFolderInput(status.folderPath ?? '');
+    }
+    if (status.remoteUrl !== undefined) {
+      setSyncRemoteInput(status.remoteUrl ?? '');
+    }
+    if (status.branch !== undefined) {
+      setSyncBranchInput(status.branch ?? '');
+    }
+    if (status.authUsername !== undefined) {
+      setGitUsername(status.authUsername ?? '');
+    }
+    setSyncAutoSync(status.autoSync);
+    setSyncAutoPush(Boolean(status.autoPush));
+    setSyncAutoPushDelaySecs(status.autoPushDelaySecs ?? 15);
+    setSyncAutoFetch(Boolean(status.autoFetch));
+    setSyncAutoFetchIntervalMins(status.autoFetchIntervalMins ?? 5);
+    setSyncFetchSnoozeMins(status.fetchSnoozeMins ?? 30);
+  }, []);
+
+  React.useEffect(() => {
+    if (open) {
+      setActiveTab(initialTab);
+    }
+  }, [open, initialTab]);
 
   React.useEffect(() => {
     if (!open) {
@@ -244,8 +249,6 @@ export function SettingsModal({
       setShowGitPassword(false);
       return;
     }
-
-    setActiveTab(initialTab);
 
     if (hasNativeFileBridge()) {
       void initRuntimeInfo();
@@ -271,7 +274,7 @@ export function SettingsModal({
           // Ignore when command mock doesn't implement get_git_sync_status_cmd
         });
     }
-  }, [open, initialTab, applyGitSyncStatus, inspectSyncFolder]);
+  }, [open, applyGitSyncStatus, inspectSyncFolder, initRuntimeInfo]);
 
   const effectiveShortcuts = React.useMemo(
     () => getEffectiveShortcuts(settings.customShortcuts),
