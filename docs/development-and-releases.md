@@ -59,14 +59,14 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ## GitHub Actions CI & Releases
 
 - **Continuous Integration ([ci.yml](../.github/workflows/ci.yml)):** Runs on every push and PR to `main` (`pnpm typecheck`, `pnpm test`, `pnpm build`, and `cargo test` across `ubuntu-22.04` and `windows-latest`).
-- **Multi-Platform Release Builds ([release.yml](../.github/workflows/release.yml)):** Triggered by `v*` Git tags or manual `workflow_dispatch`, compiling native installers for:
+- **Multi-Platform Release Builds ([release.yml](../.github/workflows/release.yml)):** Triggered by `v*` Git tags or manual `workflow_dispatch`. On tag pushes, `prepare-release` creates a single Draft Release with auto-generated release notes (and automatic `prerelease` detection for tags containing `-`), the `build` matrix attaches installers to that `releaseId`, and `publish` automatically publishes the release once all platforms succeed (leaving it as a Draft if any build fails):
   - **Windows (`x64`):** `.msi` / `.exe`
   - **Linux (`x64`):** `.deb` / `.rpm` / `.AppImage`
   - **macOS (`arm64` & `x64`):** `.dmg`
 
 ### Automated Release CLI (`pnpm release`)
 
-Verifies clean git state + `pnpm typecheck` + `pnpm test`, bumps the version across `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `src-tauri/Cargo.lock`, creates commit `chore(release): v<version>` + annotated tag `v<version>`, and pushes to `origin` to start the Draft Release workflow:
+Verifies clean git state + `pnpm typecheck` + `pnpm test`, bumps the version across `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `src-tauri/Cargo.lock`, creates commit `chore(release): v<version>` + annotated tag `v<version>`, and pushes to `origin` to start the automated Release workflow:
 
 ```bash
 # Version targets
@@ -81,7 +81,4 @@ pnpm release 0.4.0 --no-push    # commit & tag locally; push manually later
 pnpm release patch --skip-checks # skip pnpm typecheck & pnpm test
 pnpm release patch --allow-dirty # allow uncommitted changes in working tree
 pnpm release --help             # show usage & current version
-
-# Publish the GitHub Draft Release once artifacts finish building
-gh release edit v0.4.0 --draft=false
 ```

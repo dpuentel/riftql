@@ -37,9 +37,57 @@ jobs:
       - name: Run Vitest suite
         run: pnpm test
 
+  prepare-release:
+    name: Prepare GitHub Release
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+      is_prerelease: ${{ steps.release.outputs.is_prerelease }}
+    steps:
+      - name: Create or reuse Draft Release
+        id: release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$TAG_NAME" == *-* ]]; then
+            IS_PRERELEASE="true"
+          else
+            IS_PRERELEASE="false"
+          fi
+
+          RELEASE_ID="$(gh api --paginate "repos/${REPO}/releases?per_page=100" \
+            | jq -rs --arg tag "$TAG_NAME" '[.[][] | select(.tag_name == $tag) | .id] | first // empty')"
+
+          if [[ -z "$RELEASE_ID" ]]; then
+            RELEASE_ID="$(gh api -X POST "repos/${REPO}/releases" \
+              -f tag_name="$TAG_NAME" \
+              -f name="RiftQL ${TAG_NAME}" \
+              -f body="See the assets below to download and install RiftQL for Windows, Linux, or macOS." \
+              -F draft=true \
+              -F prerelease="$IS_PRERELEASE" \
+              -F generate_release_notes=true \
+              --jq '.id')"
+          fi
+
+          if [[ -z "$RELEASE_ID" ]]; then
+            echo "Failed to resolve GitHub release ID for ${TAG_NAME}" >&2
+            exit 1
+          fi
+
+          echo "release_id=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=${IS_PRERELEASE}" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build (${{ matrix.artifact_name }})
-    needs: test
+    needs: [test, prepare-release]
     permissions:
       contents: write
     strategy:
@@ -104,11 +152,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          releaseId: ${{ needs.prepare-release.outputs.release_id }}
           tagName: ${{ github.ref_name }}
-          releaseName: 'RiftQL ${{ github.ref_name }}'
-          releaseBody: 'See the assets below to download and install RiftQL for Windows, Linux, or macOS.'
-          releaseDraft: true
-          prerelease: false
           args: ${{ matrix.args }}
 
       - name: Build Tauri bundle (manual dispatch)
@@ -122,3 +167,29 @@ jobs:
           name: riftql-${{ matrix.artifact_name }}
           path: src-tauri/target/**/release/bundle/**/*
           if-no-files-found: warn
+
+  publish:
+    name: Publish GitHub Release
+    needs: [prepare-release, build]
+    if: startsWith(github.ref, 'refs/tags/v') && needs.prepare-release.outputs.release_id != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
+          IS_PRERELEASE: ${{ needs.prepare-release.outputs.is_prerelease }}
+        run: |
+          set -euo pipefail
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            MAKE_LATEST="false"
+          else
+            MAKE_LATEST="true"
+          fi
+          gh api -X PATCH "repos/${REPO}/releases/${RELEASE_ID}" \
+            -F draft=false \
+            -F prerelease="$IS_PRERELEASE" \
+            -f make_latest="$MAKE_LATEST"

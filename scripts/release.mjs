@@ -305,8 +305,9 @@ function main() {
   runCommand('git', ['push', 'origin', tagName], { cwd: rootDir });
 
   console.log(`\nTriggered Release Binaries workflow for ${tagName}.`);
-  console.log(`Once builds finish, publish the draft release via GitHub UI or:`);
-  console.log(`  gh release edit ${tagName} --draft=false`);
+  console.log(
+    `The workflow will publish the GitHub Release automatically once all platform builds succeed (otherwise it remains as a Draft).`,
+  );
 }
 
 const isCliEntry =
