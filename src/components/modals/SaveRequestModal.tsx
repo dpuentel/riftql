@@ -17,34 +17,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { buildIndentedFolders } from '@/lib/collections';
 import { useTabsStore } from '@/store/useTabsStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
-import type { FolderRecord } from '@/types/storage';
 
 interface SaveRequestModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   tabId: string | null;
-}
-
-function buildIndentedFolders(
-  folders: FolderRecord[],
-  collectionId: string,
-  parentId?: string,
-  depth: number = 0,
-): Array<{ folder: FolderRecord; label: string }> {
-  const children = folders.filter(
-    (f) => f.collectionId === collectionId && (f.parentId ?? undefined) === parentId,
-  );
-  const result: Array<{ folder: FolderRecord; label: string }> = [];
-  for (const child of children) {
-    result.push({
-      folder: child,
-      label: `${'— '.repeat(depth)}${child.name}`,
-    });
-    result.push(...buildIndentedFolders(folders, collectionId, child.id, depth + 1));
-  }
-  return result;
 }
 
 export function SaveRequestModal({

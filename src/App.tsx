@@ -2,6 +2,7 @@ import * as React from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { CodeSnippetModal } from '@/components/modals/CodeSnippetModal';
 import { CommandPalette } from '@/components/modals/CommandPalette';
+import { ImportCollectionModal } from '@/components/modals/ImportCollectionModal';
 import { ImportCurlModal } from '@/components/modals/ImportCurlModal';
 import { SettingsModal, type SettingsTab } from '@/components/modals/SettingsModal';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -39,6 +40,11 @@ export function App() {
   const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('general');
   const [gitSyncStatus, setGitSyncStatus] = React.useState<GitSyncStatus | null>(null);
   const [importCurlOpen, setImportCurlOpen] = React.useState(false);
+  const [importCollectionModal, setImportCollectionModal] = React.useState<{
+    open: boolean;
+    collectionId?: string;
+    folderId?: string;
+  }>({ open: false });
   const [codeSnippetOpen, setCodeSnippetOpen] = React.useState(false);
   const [envOpen, setEnvOpen] = React.useState(false);
   const [cookiesOpen, setCookiesOpen] = React.useState(false);
@@ -52,6 +58,17 @@ export function App() {
     setSettingsTab(tab);
     setSettingsOpen(true);
   }, []);
+
+  const openImportCollection = React.useCallback(
+    (target?: { collectionId?: string; folderId?: string }) => {
+      setImportCollectionModal({
+        open: true,
+        collectionId: target?.collectionId,
+        folderId: target?.folderId,
+      });
+    },
+    [],
+  );
 
   const showToast = React.useCallback((msg: string) => {
     setToastMsg(msg);
@@ -244,6 +261,7 @@ export function App() {
           }
         }}
         onOpenGitSyncSettings={() => openSettings('git-sync')}
+        onOpenImportCollection={openImportCollection}
         gitSyncStatus={gitSyncStatus}
         importCurlOpen={importCurlOpen}
         setImportCurlOpen={setImportCurlOpen}
@@ -261,6 +279,15 @@ export function App() {
         extraModals={
           <>
             <ImportCurlModal open={importCurlOpen} onOpenChange={setImportCurlOpen} />
+            <ImportCollectionModal
+              open={importCollectionModal.open}
+              onOpenChange={(nextOpen) =>
+                setImportCollectionModal((prev) => ({ ...prev, open: nextOpen }))
+              }
+              initialTargetCollectionId={importCollectionModal.collectionId}
+              initialTargetFolderId={importCollectionModal.folderId}
+              onImported={showToast}
+            />
             <CodeSnippetModal open={codeSnippetOpen} onOpenChange={setCodeSnippetOpen} />
             <CommandPalette
               open={commandPaletteOpen}
@@ -268,6 +295,7 @@ export function App() {
               onSendRequest={() => void sendTabRequest(activeTabId)}
               onFormatBody={handleFormatActiveBody}
               onImportCurl={() => setImportCurlOpen(true)}
+              onImportCollection={() => openImportCollection()}
               onOpenCodeSnippet={() => setCodeSnippetOpen(true)}
               onToggleSidebar={() => setSidebarOpen((v) => !v)}
               onOpenCookies={() => setCookiesOpen(true)}
@@ -284,6 +312,7 @@ export function App() {
               onRecordingChange={setRecordingShortcut}
               initialTab={settingsTab}
               onGitSyncStatusChange={setGitSyncStatus}
+              onOpenImportCollection={() => openImportCollection()}
             />
             {toastMsg && (
               <div

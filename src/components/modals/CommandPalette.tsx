@@ -5,6 +5,7 @@ import {
   Columns2,
   Cookie,
   FolderPlus,
+  FolderUp,
   Globe,
   Import,
   PanelLeft,
@@ -35,6 +36,7 @@ export interface CommandPaletteProps {
   onSendRequest: () => void;
   onFormatBody: () => void;
   onImportCurl: () => void;
+  onImportCollection?: () => void;
   onOpenCodeSnippet: () => void;
   onToggleSidebar: () => void;
   onOpenCookies: () => void;
@@ -49,6 +51,7 @@ export function CommandPalette({
   onSendRequest,
   onFormatBody,
   onImportCurl,
+  onImportCollection,
   onOpenCodeSnippet,
   onToggleSidebar,
   onOpenCookies,
@@ -133,6 +136,16 @@ export function CommandPalette({
       shortcutId: 'importCurl',
       onSelect: onImportCurl,
     },
+    ...(onImportCollection
+      ? [
+          {
+            id: 'import-collection',
+            label: 'Import Collection / Spec (Postman, Altair, Insomnia, OpenAPI)',
+            icon: <FolderUp className="h-3.5 w-3.5" />,
+            onSelect: onImportCollection,
+          },
+        ]
+      : []),
     {
       id: 'copy-snippet',
       label: 'Copy as Code Snippet',

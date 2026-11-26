@@ -38,6 +38,7 @@ export interface AppShellModalSlots {
   settingsOpen?: boolean;
   setSettingsOpen?: (open: boolean) => void;
   onOpenGitSyncSettings?: () => void;
+  onOpenImportCollection?: (target?: { collectionId?: string; folderId?: string }) => void;
   gitSyncStatus?: GitSyncStatus | null;
   importCurlOpen?: boolean;
   setImportCurlOpen?: (open: boolean) => void;
@@ -271,6 +272,7 @@ export function AppShell(props: AppShellModalSlots = {}) {
               onOpenCookies={() => setCookiesOpen(true)}
               onOpenSettings={() => props.setSettingsOpen?.(true)}
               onOpenGitSyncSettings={props.onOpenGitSyncSettings}
+              onOpenImportCollection={props.onOpenImportCollection}
               gitSyncStatus={props.gitSyncStatus}
               onEditCollection={(col) => {
                 setEditingFolder(undefined);

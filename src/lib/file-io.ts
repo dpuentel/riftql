@@ -7,9 +7,32 @@ import {
 
 const JSON_FILTERS = [{ name: 'JSON', extensions: ['json'] }];
 
+export interface FileDialogFilter {
+  name: string;
+  extensions: string[];
+}
+
 export interface ExportFileResult {
   saved: boolean;
   path?: string;
+}
+
+export interface ImportedTextFile {
+  content: string;
+  fileName: string;
+  path?: string;
+}
+
+export const IMPORT_COLLECTION_FILTERS: FileDialogFilter[] = [
+  {
+    name: 'Collections & Specs (JSON, Altair)',
+    extensions: ['json', 'agq', 'agc', 'agx', 'txt'],
+  },
+];
+
+function extractBaseName(filePath: string): string {
+  const parts = filePath.split(/[/\\]/);
+  return parts[parts.length - 1] || filePath;
 }
 
 /**
@@ -51,19 +74,36 @@ export async function exportJsonFile(
 }
 
 /**
- * Opens a native file dialog and reads JSON text in Tauri runtime.
- * Returns `null` when native bridge is unavailable or when user cancels.
+ * Opens a native file dialog and reads arbitrary text files (`.json`, `.agq`, `.agc`, `.agx`, etc.)
+ * in Tauri runtime. Returns `null` when native bridge is unavailable or when user cancels.
  */
-export async function importJsonFileViaDialog(title = 'Import JSON'): Promise<string | null> {
+export async function importTextFileViaDialog(
+  title = 'Import File',
+  filters: FileDialogFilter[] = IMPORT_COLLECTION_FILTERS,
+): Promise<ImportedTextFile | null> {
   if (!hasNativeFileBridge()) {
     return null;
   }
   const selectedPath = await pickOpenFile({
     title,
-    filters: JSON_FILTERS,
+    filters,
   });
   if (!selectedPath) {
     return null;
   }
-  return invokeCommand<string>('read_text_file_cmd', { path: selectedPath });
+  const content = await invokeCommand<string>('read_text_file_cmd', { path: selectedPath });
+  return {
+    content,
+    fileName: extractBaseName(selectedPath),
+    path: selectedPath,
+  };
+}
+
+/**
+ * Opens a native file dialog and reads JSON text in Tauri runtime.
+ * Returns `null` when native bridge is unavailable or when user cancels.
+ */
+export async function importJsonFileViaDialog(title = 'Import JSON'): Promise<string | null> {
+  const result = await importTextFileViaDialog(title, JSON_FILTERS);
+  return result ? result.content : null;
 }

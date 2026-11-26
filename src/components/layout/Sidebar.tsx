@@ -7,6 +7,7 @@ import {
   Cookie,
   Folder,
   FolderPlus,
+  FolderUp,
   GitBranch,
   Globe,
   History,
@@ -108,6 +109,7 @@ interface SidebarProps {
   onOpenCookies: () => void;
   onOpenSettings: () => void;
   onOpenGitSyncSettings?: () => void;
+  onOpenImportCollection?: (target?: { collectionId?: string; folderId?: string }) => void;
   gitSyncStatus?: GitSyncStatus | null;
   onEditCollection: (collection: CollectionRecord) => void;
   onEditFolder: (folder: FolderRecord) => void;
@@ -153,6 +155,7 @@ export function Sidebar({
   onOpenCookies,
   onOpenSettings,
   onOpenGitSyncSettings,
+  onOpenImportCollection,
   gitSyncStatus,
   onEditCollection,
   onEditFolder,
@@ -713,6 +716,13 @@ export function Sidebar({
                   <ContextMenuItem onSelect={() => void handleAddFolder(collectionId, folder.id)}>
                     New Subfolder
                   </ContextMenuItem>
+                  {onOpenImportCollection && (
+                    <ContextMenuItem
+                      onSelect={() => onOpenImportCollection({ collectionId, folderId: folder.id })}
+                    >
+                      Import Into Folder…
+                    </ContextMenuItem>
+                  )}
                   <ContextMenuItem onSelect={() => startRename('folder', folder.id, folder.name)}>
                     Rename Folder
                   </ContextMenuItem>
@@ -943,16 +953,30 @@ export function Sidebar({
           />
         </div>
         {view === 'collections' && (
-          <ActionTooltip label="New Collection" actionId="newCollection">
-            <Button
-              size="icon"
-              variant="secondary"
-              aria-label="New Collection"
-              onClick={() => setCreatingCollection((v) => !v)}
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </Button>
-          </ActionTooltip>
+          <div className="flex shrink-0 items-center gap-1">
+            <ActionTooltip label="New Collection" actionId="newCollection">
+              <Button
+                size="icon"
+                variant="secondary"
+                aria-label="New Collection"
+                onClick={() => setCreatingCollection((v) => !v)}
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+            </ActionTooltip>
+            {onOpenImportCollection && (
+              <ActionTooltip label="Import Collection / Spec">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  aria-label="Import Collection"
+                  onClick={() => onOpenImportCollection()}
+                >
+                  <FolderUp className="h-3.5 w-3.5" />
+                </Button>
+              </ActionTooltip>
+            )}
+          </div>
         )}
         {view === 'history' && history.length > 0 && (
           <ActionTooltip label="Clear History">
@@ -991,12 +1015,25 @@ export function Sidebar({
         {view === 'collections' && (
           <>
             {collections.length === 0 ? (
-              <div className="px-3 py-8 text-center text-xs text-[var(--text-secondary)]">
-                No collections yet. Press{' '}
-                <kbd className="rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1 py-0.5 font-mono-code text-[0.6875rem]">
-                  {newCollectionShortcut}
-                </kbd>{' '}
-                to create one.
+              <div className="flex flex-col items-center gap-2 px-3 py-8 text-center text-xs text-[var(--text-secondary)]">
+                <div>
+                  No collections yet. Press{' '}
+                  <kbd className="rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1 py-0.5 font-mono-code text-[0.6875rem]">
+                    {newCollectionShortcut}
+                  </kbd>{' '}
+                  to create one.
+                </div>
+                {onOpenImportCollection && (
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="secondary"
+                    onClick={() => onOpenImportCollection()}
+                  >
+                    <FolderUp className="h-3.5 w-3.5" />
+                    <span>Import Postman / Altair / OpenAPI</span>
+                  </Button>
+                )}
               </div>
             ) : (
               <div className="flex flex-col gap-0.5">
@@ -1176,6 +1213,13 @@ export function Sidebar({
                           <ContextMenuItem onSelect={() => void handleAddFolder(col.id)}>
                             New Folder
                           </ContextMenuItem>
+                          {onOpenImportCollection && (
+                            <ContextMenuItem
+                              onSelect={() => onOpenImportCollection({ collectionId: col.id })}
+                            >
+                              Import Into Collection…
+                            </ContextMenuItem>
+                          )}
                           <ContextMenuItem
                             onSelect={() => startRename('collection', col.id, col.name)}
                           >

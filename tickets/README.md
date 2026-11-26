@@ -34,6 +34,6 @@ Track MVP execution and post-MVP backlog items. Every ticket maps to atomic Git 
 | ID | Title | Area | Status |
 | --- | --- | --- | --- |
 | [T-101](./T-101-backlog-git-friendly-sync.md) | Git-friendly JSON workspace sync (folder-based collections, Git & migration) | Persistence / v2 | `DONE` |
-| [T-102](./T-102-backlog-postman-openapi-import.md) | Postman v2.1, Insomnia & OpenAPI 3.x / Swagger importers | Importers / v2 | `BACKLOG` |
+| [T-102](./T-102-backlog-postman-openapi-import.md) | Altair GraphQL, Postman v2.1, Insomnia & OpenAPI 3.x / Swagger importers | Importers / v2 | `DONE` |
 | [T-103](./T-103-backlog-js-scripting-runtime.md) | Sandboxed JavaScript pre-request & post-response test assertions runtime | Scripting / v2 | `BACKLOG` |
 | [T-104](./T-104-backlog-graphql-subscriptions-mtls.md) | GraphQL WebSocket/SSE subscriptions & custom mTLS client certificates | Protocol / v2 | `BACKLOG` |

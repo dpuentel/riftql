@@ -11,6 +11,7 @@ import {
   EyeOff,
   FolderGit2,
   FolderOpen,
+  FolderUp,
   GitBranch,
   GitCommit,
   KeyRound,
@@ -90,6 +91,7 @@ interface SettingsModalProps {
   onRecordingChange?: (recording: boolean) => void;
   initialTab?: SettingsTab;
   onGitSyncStatusChange?: (status: GitSyncStatus) => void;
+  onOpenImportCollection?: () => void;
 }
 
 export function SettingsModal({
@@ -98,6 +100,7 @@ export function SettingsModal({
   onRecordingChange,
   initialTab = 'general',
   onGitSyncStatusChange,
+  onOpenImportCollection,
 }: SettingsModalProps) {
   const settings = useSettingsStore((s) => s.settings);
   const resolvedTheme = useSettingsStore((s) => s.resolvedTheme);
@@ -1146,7 +1149,7 @@ export function SettingsModal({
               Export your collections, nested folders, saved requests, and environments as JSON.
               Variables flagged as secret are automatically stripped before export.
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <input
                 ref={importInputRef}
                 type="file"
@@ -1170,6 +1173,19 @@ export function SettingsModal({
                 <Upload className="h-3.5 w-3.5" />
                 <span>Import Workspace JSON</span>
               </Button>
+              {onOpenImportCollection && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    onOpenChange(false);
+                    onOpenImportCollection();
+                  }}
+                >
+                  <FolderUp className="h-3.5 w-3.5" />
+                  <span>Import External (Postman, Altair, OpenAPI)…</span>
+                </Button>
+              )}
             </div>
             {dataMessage && (
               <div className="text-xs text-[var(--accent)]">{dataMessage}</div>

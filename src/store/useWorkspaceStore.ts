@@ -721,7 +721,66 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   importWorkspace: async (payload) => {
-    await tryInvoke('import_workspace_cmd', { payload }, () => undefined);
-    await get().loadWorkspace();
+    if (payload.version !== 1) {
+      throw new Error(`Unsupported workspace export version: ${payload.version}`);
+    }
+    let ranNatively = true;
+    await tryInvoke('import_workspace_cmd', { payload }, () => {
+      ranNatively = false;
+      return undefined;
+    });
+    if (ranNatively) {
+      await get().loadWorkspace();
+      return;
+    }
+
+    set((state) => {
+      const upsertById = <T extends { id: string }>(existing: T[], incoming: T[]): T[] => {
+        if (incoming.length === 0) return existing;
+        const next = existing.slice();
+        const indexById = new Map(next.map((item, idx) => [item.id, idx]));
+        for (const item of incoming) {
+          const idx = indexById.get(item.id);
+          if (idx !== undefined) {
+            next[idx] = item;
+          } else {
+            indexById.set(item.id, next.length);
+            next.push(item);
+          }
+        }
+        return next;
+      };
+
+      const nextEnvs = state.environments.slice();
+      for (const env of payload.environments) {
+        if (env.isGlobal) {
+          const globalIdx = nextEnvs.findIndex((e) => e.isGlobal);
+          if (globalIdx >= 0) {
+            nextEnvs[globalIdx] = {
+              ...nextEnvs[globalIdx],
+              name: env.name,
+              variables: env.variables,
+              updatedAt: env.updatedAt || nowIso(),
+            };
+          } else {
+            nextEnvs.unshift(env);
+          }
+        } else {
+          const idx = nextEnvs.findIndex((e) => e.id === env.id);
+          if (idx >= 0) {
+            nextEnvs[idx] = env;
+          } else {
+            nextEnvs.push(env);
+          }
+        }
+      }
+
+      return {
+        collections: upsertById(state.collections, payload.collections),
+        folders: upsertById(state.folders, payload.folders),
+        savedRequests: upsertById(state.savedRequests, payload.savedRequests),
+        environments: nextEnvs,
+      };
+    });
   },
 }));
