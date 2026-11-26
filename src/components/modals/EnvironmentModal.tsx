@@ -1,9 +1,11 @@
 import * as React from 'react';
 import {
+  CopyPlus,
   Download,
   Eye,
   EyeOff,
   Globe,
+  Layers,
   Lock,
   LockOpen,
   Plus,
@@ -38,6 +40,8 @@ interface EnvironmentModalProps {
 export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) {
   const environments = useWorkspaceStore((s) => s.environments);
   const upsertEnvironment = useWorkspaceStore((s) => s.upsertEnvironment);
+  const updateEnvironmentLocal = useWorkspaceStore((s) => s.updateEnvironmentLocal);
+  const persistEnvironment = useWorkspaceStore((s) => s.persistEnvironment);
   const deleteEnvironment = useWorkspaceStore((s) => s.deleteEnvironment);
   const activeEnvironmentId = useSettingsStore((s) => s.settings.activeEnvironmentId);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
@@ -47,9 +51,48 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
   const [envNameDraft, setEnvNameDraft] = React.useState('');
   const [revealedIds, setRevealedIds] = React.useState<Set<string>>(new Set());
   const [statusMsg, setStatusMsg] = React.useState<string | null>(null);
+
+  const [bulkOpen, setBulkOpen] = React.useState(false);
+  const [bulkKey, setBulkKey] = React.useState('');
+  const [bulkValue, setBulkValue] = React.useState('');
+  const [bulkSecret, setBulkSecret] = React.useState(false);
+  const [bulkIncludeGlobal, setBulkIncludeGlobal] = React.useState(false);
+
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const wasOpenRef = React.useRef(false);
   const envNameFocusedRef = React.useRef(false);
+  const debounceTimersRef = React.useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  const flushPendingEnvSaves = React.useCallback(() => {
+    for (const [envId, timer] of debounceTimersRef.current.entries()) {
+      clearTimeout(timer);
+      debounceTimersRef.current.delete(envId);
+      void persistEnvironment(envId);
+    }
+  }, [persistEnvironment]);
+
+  const schedulePersistEnv = React.useCallback(
+    (envId: string) => {
+      const prevTimer = debounceTimersRef.current.get(envId);
+      if (prevTimer) {
+        clearTimeout(prevTimer);
+      }
+      const nextTimer = setTimeout(() => {
+        debounceTimersRef.current.delete(envId);
+        void persistEnvironment(envId);
+      }, 200);
+      debounceTimersRef.current.set(envId, nextTimer);
+    },
+    [persistEnvironment],
+  );
+
+  React.useEffect(() => {
+    return () => {
+      for (const timer of debounceTimersRef.current.values()) {
+        clearTimeout(timer);
+      }
+    };
+  }, []);
 
   // Initialize selected environment only when opening the modal (not on every variable edit)
   React.useEffect(() => {
@@ -60,9 +103,13 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
         setSelectedId(preferred.id);
       }
       setStatusMsg(null);
+      setBulkIncludeGlobal(!environments.some((e) => !e.isGlobal));
+    } else if (!open && wasOpenRef.current) {
+      flushPendingEnvSaves();
+      setBulkOpen(false);
     }
     wasOpenRef.current = open;
-  }, [open, activeEnvironmentId, environments]);
+  }, [open, activeEnvironmentId, environments, flushPendingEnvSaves]);
 
   // Recover selection only if the currently selected environment was deleted
   React.useEffect(() => {
@@ -93,6 +140,7 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
     e.preventDefault();
     const trimmed = newEnvName.trim();
     if (!trimmed) return;
+    flushPendingEnvSaves();
     const created = await upsertEnvironment({
       name: trimmed,
       isGlobal: false,
@@ -111,6 +159,7 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
       return;
     }
     if (trimmed !== selectedEnv.name) {
+      flushPendingEnvSaves();
       await upsertEnvironment({
         id: selectedEnv.id,
         name: trimmed,
@@ -120,16 +169,124 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
     }
   };
 
-  const updateVariables = async (
+  const updateVariablesImmediate = async (
     env: EnvironmentRecord,
     nextVars: EnvironmentVariable[],
   ) => {
+    const pendingTimer = debounceTimersRef.current.get(env.id);
+    if (pendingTimer) {
+      clearTimeout(pendingTimer);
+      debounceTimersRef.current.delete(env.id);
+    }
     await upsertEnvironment({
       id: env.id,
       name: env.name,
       isGlobal: env.isGlobal,
       variables: nextVars,
     });
+  };
+
+  const handleTypingVariables = (
+    env: EnvironmentRecord,
+    nextVars: EnvironmentVariable[],
+  ) => {
+    updateEnvironmentLocal(env.id, { variables: nextVars });
+    schedulePersistEnv(env.id);
+  };
+
+  const propagateVariableToTargets = async (
+    key: string,
+    value: string,
+    isSecret: boolean,
+    enabled: boolean,
+    targets: EnvironmentRecord[],
+  ) => {
+    const trimmedKey = key.trim();
+    if (!trimmedKey || targets.length === 0) return { added: 0, skipped: 0 };
+
+    flushPendingEnvSaves();
+    let added = 0;
+    let skipped = 0;
+
+    for (const env of targets) {
+      const alreadyHas = env.variables.some((v) => v.key.trim() === trimmedKey);
+      if (alreadyHas) {
+        skipped += 1;
+        continue;
+      }
+      await upsertEnvironment({
+        id: env.id,
+        name: env.name,
+        isGlobal: env.isGlobal,
+        variables: [
+          ...env.variables,
+          {
+            id: nanoid(),
+            key: trimmedKey,
+            value,
+            isSecret,
+            enabled,
+          },
+        ],
+      });
+      added += 1;
+    }
+    return { added, skipped };
+  };
+
+  const handleBulkCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmedKey = bulkKey.trim();
+    if (!trimmedKey) return;
+
+    const customEnvs = environments.filter((env) => !env.isGlobal);
+    const includeGlobalEffective = bulkIncludeGlobal || customEnvs.length === 0;
+    const targets = environments.filter((env) => includeGlobalEffective || !env.isGlobal);
+
+    const { added, skipped } = await propagateVariableToTargets(
+      trimmedKey,
+      bulkValue,
+      bulkSecret,
+      true,
+      targets,
+    );
+
+    setBulkKey('');
+    setBulkValue('');
+    setBulkSecret(false);
+    setBulkOpen(false);
+    setStatusMsg(
+      skipped > 0
+        ? `Added "${trimmedKey}" to ${added} environment(s) (${skipped} already had it).`
+        : `Added "${trimmedKey}" to ${added} environment(s).`,
+    );
+  };
+
+  const handleCopyRowToAll = async (sourceEnv: EnvironmentRecord, variable: EnvironmentVariable) => {
+    const trimmedKey = variable.key.trim();
+    if (!trimmedKey) return;
+    const otherCustom = environments.filter((e) => !e.isGlobal && e.id !== sourceEnv.id);
+    const targets =
+      otherCustom.length > 0
+        ? otherCustom
+        : environments.filter((e) => e.id !== sourceEnv.id);
+    if (targets.length === 0) {
+      setStatusMsg('Create another environment first to copy variables across environments.');
+      return;
+    }
+
+    const { added, skipped } = await propagateVariableToTargets(
+      trimmedKey,
+      variable.value,
+      variable.isSecret,
+      variable.enabled,
+      targets,
+    );
+    setStatusMsg(
+      skipped > 0
+        ? `Copied "${trimmedKey}" to ${added} environment(s) (${skipped} already defined it).`
+        : `Copied "${trimmedKey}" to ${added} environment(s).`,
+    );
   };
 
   const toggleReveal = (varId: string) => {
@@ -143,7 +300,9 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
 
   const handleExport = async () => {
     try {
-      const stripped = stripSecretsForExport(environments);
+      flushPendingEnvSaves();
+      const latestEnvs = useWorkspaceStore.getState().environments;
+      const stripped = stripSecretsForExport(latestEnvs);
       const json = JSON.stringify({ version: 1, environments: stripped }, null, 2);
       const result = await exportJsonFile(
         'riftql-environments.json',
@@ -165,6 +324,7 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
 
   const importEnvironmentsFromText = async (text: string) => {
     try {
+      flushPendingEnvSaves();
       const parsed = JSON.parse(text) as { environments?: EnvironmentRecord[] };
       const list = Array.isArray(parsed.environments) ? parsed.environments : [];
       for (const item of list) {
@@ -217,10 +377,20 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
     }
   };
 
+  const customEnvCount = environments.filter((e) => !e.isGlobal).length;
+  const bulkTargetCount =
+    bulkIncludeGlobal || customEnvCount === 0 ? environments.length : customEnvCount;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
+      <DialogContent
+        resizable
+        storageKey="riftql-env-modal-size"
+        minWidth={560}
+        minHeight={380}
+        className="h-[520px] max-w-4xl"
+      >
+        <DialogHeader className="shrink-0">
           <DialogTitle>Manage Environments</DialogTitle>
           <DialogDescription>
             Define <code className="font-mono-code">{'{{variables}}'}</code> with precedence:
@@ -229,9 +399,9 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid h-[380px] grid-cols-[200px_1fr] gap-3">
+        <div className="grid min-h-0 flex-1 grid-cols-[200px_1fr] gap-3">
           {/* Environments list */}
-          <div className="flex flex-col gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] p-2">
+          <div className="flex min-h-0 flex-col gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] p-2">
             <form onSubmit={(e) => void handleCreateEnv(e)} className="flex gap-1">
               <Input
                 value={newEnvName}
@@ -262,7 +432,10 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
                   >
                     <button
                       type="button"
-                      onClick={() => setSelectedId(env.id)}
+                      onClick={() => {
+                        flushPendingEnvSaves();
+                        setSelectedId(env.id);
+                      }}
                       className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left"
                     >
                       {env.isGlobal && <Globe className="h-3 w-3 shrink-0 text-[var(--accent)]" />}
@@ -275,7 +448,10 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
                         <button
                           type="button"
                           aria-label={`Delete ${env.name}`}
-                          onClick={() => void deleteEnvironment(env.id)}
+                          onClick={() => {
+                            flushPendingEnvSaves();
+                            void deleteEnvironment(env.id);
+                          }}
                           className="ml-1 hidden h-5 w-5 items-center justify-center rounded text-[var(--text-secondary)] group-hover:inline-flex hover:text-[#F87171]"
                         >
                           <Trash2 className="h-3 w-3" />
@@ -317,12 +493,8 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
                         const next = e.target.value;
                         setEnvNameDraft(next);
                         if (next.trim() && next.trim() === next) {
-                          void upsertEnvironment({
-                            id: selectedEnv.id,
-                            name: next,
-                            isGlobal: false,
-                            variables: selectedEnv.variables,
-                          });
+                          updateEnvironmentLocal(selectedEnv.id, { name: next });
+                          schedulePersistEnv(selectedEnv.id);
                         }
                       }}
                       className="h-7 w-52 font-medium"
@@ -350,6 +522,80 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
                 )}
               </div>
 
+              {bulkOpen && (
+                <form
+                  onSubmit={(e) => void handleBulkCreate(e)}
+                  className="flex flex-col gap-2 rounded border border-[var(--accent)]/40 bg-[var(--bg-surface)] p-2"
+                >
+                  <div className="flex items-center justify-between text-[0.75rem] font-medium text-[var(--text-primary)]">
+                    <span className="flex items-center gap-1.5">
+                      <Layers className="h-3.5 w-3.5 text-[var(--accent)]" />
+                      <span>Create Variable in {bulkTargetCount} Environment(s)</span>
+                    </span>
+                    {customEnvCount > 0 && (
+                      <label className="flex cursor-pointer items-center gap-1.5 text-[0.6875rem] text-[var(--text-secondary)]">
+                        <input
+                          type="checkbox"
+                          aria-label="Include Global environment"
+                          checked={bulkIncludeGlobal}
+                          onChange={(e) => setBulkIncludeGlobal(e.target.checked)}
+                          className="h-3 w-3 accent-[var(--accent)]"
+                        />
+                        <span>Include Global</span>
+                      </label>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Input
+                      autoFocus
+                      value={bulkKey}
+                      aria-label="Bulk variable key"
+                      placeholder="variable_key"
+                      onChange={(e) => setBulkKey(e.target.value)}
+                      className="h-7 min-w-[120px] flex-1 font-mono-code text-xs"
+                    />
+                    <Input
+                      value={bulkValue}
+                      aria-label="Bulk variable value"
+                      placeholder="default value"
+                      onChange={(e) => setBulkValue(e.target.value)}
+                      className="h-7 min-w-[140px] flex-1 font-mono-code text-xs"
+                    />
+                    <ActionTooltip label={bulkSecret ? 'Secret variable' : 'Plain variable'}>
+                      <button
+                        type="button"
+                        aria-label="Bulk variable secret"
+                        onClick={() => setBulkSecret((v) => !v)}
+                        className={`inline-flex h-7 w-7 items-center justify-center rounded border ${
+                          bulkSecret
+                            ? 'border-[var(--accent)] bg-[var(--accent-muted)] text-[var(--accent)]'
+                            : 'border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                        }`}
+                      >
+                        {bulkSecret ? <Lock className="h-3.5 w-3.5" /> : <LockOpen className="h-3.5 w-3.5" />}
+                      </button>
+                    </ActionTooltip>
+                    <Button
+                      type="submit"
+                      size="xs"
+                      variant="default"
+                      aria-label="Create variable across environments"
+                      disabled={!bulkKey.trim()}
+                    >
+                      Apply
+                    </Button>
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => setBulkOpen(false)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              )}
+
               <div className="min-h-0 flex-1 overflow-auto rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] rift-scroll">
                 <table className="w-full border-collapse text-left text-xs">
                   <thead>
@@ -358,7 +604,7 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
                       <th className="px-2 py-1">Variable</th>
                       <th className="px-2 py-1">Value</th>
                       <th className="w-20 px-1 py-1 text-center">Secret</th>
-                      <th className="w-8 px-1 py-1" />
+                      <th className="w-14 px-1 py-1" />
                     </tr>
                   </thead>
                   <tbody>
@@ -375,7 +621,7 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
                               checked={v.enabled}
                               aria-label={`Enable ${v.key || 'variable'}`}
                               onChange={(e) =>
-                                void updateVariables(
+                                void updateVariablesImmediate(
                                   selectedEnv,
                                   selectedEnv.variables.map((item) =>
                                     item.id === v.id
@@ -392,8 +638,9 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
                               value={v.key}
                               placeholder="base_url"
                               aria-label="Variable key"
+                              onBlur={() => flushPendingEnvSaves()}
                               onChange={(e) =>
-                                void updateVariables(
+                                handleTypingVariables(
                                   selectedEnv,
                                   selectedEnv.variables.map((item) =>
                                     item.id === v.id ? { ...item, key: e.target.value } : item,
@@ -410,8 +657,9 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
                                 value={v.value}
                                 placeholder="value"
                                 aria-label="Variable value"
+                                onBlur={() => flushPendingEnvSaves()}
                                 onChange={(e) =>
-                                  void updateVariables(
+                                  handleTypingVariables(
                                     selectedEnv,
                                     selectedEnv.variables.map((item) =>
                                       item.id === v.id ? { ...item, value: e.target.value } : item,
@@ -446,7 +694,7 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
                                 type="button"
                                 aria-label={`Toggle secret for ${v.key || 'variable'}`}
                                 onClick={() =>
-                                  void updateVariables(
+                                  void updateVariablesImmediate(
                                     selectedEnv,
                                     selectedEnv.variables.map((item) =>
                                       item.id === v.id
@@ -470,21 +718,35 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
                             </ActionTooltip>
                           </td>
                           <td className="px-1 py-1 text-center">
-                            <ActionTooltip label="Delete Variable">
-                              <button
-                                type="button"
-                                aria-label="Delete variable"
-                                onClick={() =>
-                                  void updateVariables(
-                                    selectedEnv,
-                                    selectedEnv.variables.filter((item) => item.id !== v.id),
-                                  )
-                                }
-                                className="inline-flex h-6 w-6 items-center justify-center rounded text-[var(--text-secondary)] hover:text-[#F87171]"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            </ActionTooltip>
+                            <div className="inline-flex items-center gap-0.5">
+                              {v.key.trim().length > 0 && environments.length > 1 && (
+                                <ActionTooltip label="Copy to All Other Environments">
+                                  <button
+                                    type="button"
+                                    aria-label={`Copy ${v.key} to all environments`}
+                                    onClick={() => void handleCopyRowToAll(selectedEnv, v)}
+                                    className="inline-flex h-6 w-6 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent)]"
+                                  >
+                                    <CopyPlus className="h-3 w-3" />
+                                  </button>
+                                </ActionTooltip>
+                              )}
+                              <ActionTooltip label="Delete Variable">
+                                <button
+                                  type="button"
+                                  aria-label="Delete variable"
+                                  onClick={() =>
+                                    void updateVariablesImmediate(
+                                      selectedEnv,
+                                      selectedEnv.variables.filter((item) => item.id !== v.id),
+                                    )
+                                  }
+                                  className="inline-flex h-6 w-6 items-center justify-center rounded text-[var(--text-secondary)] hover:text-[#F87171]"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </ActionTooltip>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -493,26 +755,38 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
                 </table>
               </div>
 
-              <div className="flex items-center justify-between gap-2">
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  onClick={() =>
-                    void updateVariables(selectedEnv, [
-                      ...selectedEnv.variables,
-                      {
-                        id: nanoid(),
-                        key: '',
-                        value: '',
-                        isSecret: false,
-                        enabled: true,
-                      },
-                    ])
-                  }
-                >
-                  <Plus className="h-3 w-3" />
-                  <span>Add Variable</span>
-                </Button>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() =>
+                      void updateVariablesImmediate(selectedEnv, [
+                        ...selectedEnv.variables,
+                        {
+                          id: nanoid(),
+                          key: '',
+                          value: '',
+                          isSecret: false,
+                          enabled: true,
+                        },
+                      ])
+                    }
+                  >
+                    <Plus className="h-3 w-3" />
+                    <span>Add Variable</span>
+                  </Button>
+                  <ActionTooltip label="Create a variable in all environments">
+                    <Button
+                      size="xs"
+                      variant="secondary"
+                      onClick={() => setBulkOpen((v) => !v)}
+                    >
+                      <Layers className="h-3 w-3" />
+                      <span>Add to All Envs</span>
+                    </Button>
+                  </ActionTooltip>
+                </div>
 
                 {statusMsg && (
                   <span className="truncate text-[0.75rem] text-[var(--accent)]" title={statusMsg}>
@@ -524,7 +798,7 @@ export function EnvironmentModal({ open, onOpenChange }: EnvironmentModalProps) 
           )}
         </div>
 
-        <DialogFooter className="justify-between">
+        <DialogFooter className="shrink-0 justify-between">
           <div className="flex items-center gap-2">
             <input
               ref={fileInputRef}

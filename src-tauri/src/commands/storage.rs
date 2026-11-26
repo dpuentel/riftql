@@ -2,7 +2,7 @@ use tauri::State;
 
 use crate::db::collections::{
     delete_collection, delete_folder, delete_saved_request, move_folder, move_saved_request,
-    upsert_collection, upsert_folder, upsert_saved_request,
+    sort_saved_requests_alphabetically, upsert_collection, upsert_folder, upsert_saved_request,
 };
 use crate::db::environments::{
     delete_environment, export_workspace, import_workspace, upsert_environment,
@@ -154,6 +154,26 @@ pub fn move_folder_cmd(
     })?;
     sync.on_workspace_mutated(&db);
     Ok(())
+}
+
+#[tauri::command]
+pub fn sort_saved_requests_cmd(
+    db: State<Database>,
+    sync: State<GitSyncManager>,
+    collection_id: String,
+    folder_id: Option<String>,
+    descending: Option<bool>,
+) -> AppResult<Vec<SavedRequestRecord>> {
+    let sorted = db.with_conn(|conn| {
+        sort_saved_requests_alphabetically(
+            conn,
+            &collection_id,
+            folder_id.as_deref(),
+            descending.unwrap_or(false),
+        )
+    })?;
+    sync.on_workspace_mutated(&db);
+    Ok(sorted)
 }
 
 #[tauri::command]

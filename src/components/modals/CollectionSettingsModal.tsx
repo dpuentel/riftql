@@ -102,8 +102,14 @@ export function CollectionSettingsModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
+      <DialogContent
+        resizable
+        storageKey="riftql-collection-modal-size"
+        minWidth={480}
+        minHeight={360}
+        className="max-w-2xl"
+      >
+        <DialogHeader className="shrink-0">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
             Configure shared authorization{collection && !folder ? ' and collection variables' : ''}
@@ -111,7 +117,7 @@ export function CollectionSettingsModal({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={(e) => void handleSave(e)} className="flex flex-col gap-3">
+        <form onSubmit={(e) => void handleSave(e)} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1 rift-scroll">
           <div className="flex flex-col gap-1">
             <label className="text-[0.75rem] font-medium text-[var(--text-secondary)]">Name</label>
             <Input value={name} onChange={(e) => setName(e.target.value)} required />

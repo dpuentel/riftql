@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import type { RawBodyLanguage, RequestBody } from '@/types/api';
 
 interface BodyEditorProps {
+  tabId?: string;
   body: RequestBody;
   onChange: (next: RequestBody) => void;
 }
@@ -27,7 +28,7 @@ const BODY_MODES: Array<{ mode: RequestBody['mode']; label: string }> = [
   { mode: 'raw', label: 'Raw' },
 ];
 
-export function BodyEditor({ body, onChange }: BodyEditorProps) {
+export function BodyEditor({ tabId, body, onChange }: BodyEditorProps) {
   const switchMode = (mode: RequestBody['mode']) => {
     if (mode === body.mode) return;
     switch (mode) {
@@ -154,6 +155,7 @@ export function BodyEditor({ body, onChange }: BodyEditorProps) {
       {body.mode === 'json' && (
         <div className="min-h-[160px] flex-1">
           <CodeEditor
+            key={`body-json-${tabId ?? 'default'}`}
             value={body.content}
             language="json"
             placeholder='{"key": "value"}'
@@ -166,6 +168,7 @@ export function BodyEditor({ body, onChange }: BodyEditorProps) {
       {body.mode === 'raw' && (
         <div className="min-h-[160px] flex-1">
           <CodeEditor
+            key={`body-raw-${tabId ?? 'default'}`}
             value={body.content}
             language={mapRawLanguage(body.language)}
             placeholder="Raw payload..."

@@ -3,7 +3,8 @@ use tempfile::TempDir;
 
 use crate::db::collections::{
     delete_collection, list_collections, list_folders, list_saved_requests, move_folder,
-    move_saved_request, upsert_collection, upsert_folder, upsert_saved_request,
+    move_saved_request, sort_saved_requests_alphabetically, upsert_collection, upsert_folder,
+    upsert_saved_request,
 };
 use crate::db::cookies::{
     clear_cookies_by_domain, delete_cookie, list_cookies, upsert_cookie, upsert_cookies_batch,
@@ -694,6 +695,122 @@ fn move_saved_request_and_folder_updates_collections_atomically_and_prevents_cyc
             .unwrap();
         assert_eq!(updated_nested.collection_id, col_b.id);
         assert_eq!(updated_nested.folder_id, Some(f_child.id));
+
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn sort_saved_requests_alphabetically_orders_target_container_without_touching_others() {
+    let db = Database::open_in_memory().unwrap();
+    db.with_conn(|conn| {
+        let col = upsert_collection(
+            conn,
+            None,
+            "API".into(),
+            "".into(),
+            None,
+            AuthConfig::None,
+            vec![],
+            None,
+        )?;
+        let f_target = upsert_folder(
+            conn,
+            None,
+            col.id.clone(),
+            None,
+            "Users".into(),
+            None,
+            AuthConfig::Inherit,
+            None,
+        )?;
+        let f_other = upsert_folder(
+            conn,
+            None,
+            col.id.clone(),
+            None,
+            "Orders".into(),
+            None,
+            AuthConfig::Inherit,
+            None,
+        )?;
+
+        upsert_saved_request(
+            conn,
+            None,
+            col.id.clone(),
+            Some(f_target.id.clone()),
+            sample_draft("zebra", "https://api.test/z"),
+            Some(0),
+        )?;
+        upsert_saved_request(
+            conn,
+            None,
+            col.id.clone(),
+            Some(f_target.id.clone()),
+            sample_draft("Alpha", "https://api.test/a"),
+            Some(1),
+        )?;
+        upsert_saved_request(
+            conn,
+            None,
+            col.id.clone(),
+            Some(f_target.id.clone()),
+            sample_draft("beta", "https://api.test/b"),
+            Some(2),
+        )?;
+        upsert_saved_request(
+            conn,
+            None,
+            col.id.clone(),
+            Some(f_other.id.clone()),
+            sample_draft("Zulu Other", "https://api.test/zo"),
+            Some(0),
+        )?;
+        upsert_saved_request(
+            conn,
+            None,
+            col.id.clone(),
+            Some(f_other.id.clone()),
+            sample_draft("Alpha Other", "https://api.test/ao"),
+            Some(1),
+        )?;
+
+        let sorted_asc = sort_saved_requests_alphabetically(
+            conn,
+            &col.id,
+            Some(&f_target.id),
+            false,
+        )?;
+        let target_names: Vec<String> = sorted_asc
+            .iter()
+            .filter(|r| r.folder_id.as_deref() == Some(f_target.id.as_str()))
+            .map(|r| r.name.clone())
+            .collect();
+        assert_eq!(target_names, vec!["Alpha", "beta", "zebra"]);
+
+        // Other folder order remains untouched
+        let other_names: Vec<String> = sorted_asc
+            .iter()
+            .filter(|r| r.folder_id.as_deref() == Some(f_other.id.as_str()))
+            .map(|r| r.name.clone())
+            .collect();
+        assert_eq!(other_names, vec!["Zulu Other", "Alpha Other"]);
+
+        // Descending sort
+        let sorted_desc = sort_saved_requests_alphabetically(
+            conn,
+            &col.id,
+            Some(&f_target.id),
+            true,
+        )?;
+        let target_desc: Vec<String> = sorted_desc
+            .iter()
+            .filter(|r| r.folder_id.as_deref() == Some(f_target.id.as_str()))
+            .map(|r| r.name.clone())
+            .collect();
+        assert_eq!(target_desc, vec!["zebra", "beta", "Alpha"]);
 
         Ok(())
     })

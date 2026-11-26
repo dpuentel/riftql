@@ -748,3 +748,58 @@ pub fn move_folder(
     tx.commit()?;
     Ok(())
 }
+
+pub fn sort_saved_requests_alphabetically(
+    conn: &mut Connection,
+    collection_id: &str,
+    folder_id: Option<&str>,
+    descending: bool,
+) -> AppResult<Vec<SavedRequestRecord>> {
+    let tx = conn.transaction()?;
+
+    let mut items: Vec<(String, String)> = match folder_id {
+        Some(fid) => {
+            let mut stmt = tx.prepare(
+                "SELECT id, name FROM saved_requests WHERE collection_id = ?1 AND folder_id = ?2",
+            )?;
+            let rows = stmt.query_map(params![collection_id, fid], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        }
+        None => {
+            let mut stmt = tx.prepare(
+                "SELECT id, name FROM saved_requests WHERE collection_id = ?1 AND folder_id IS NULL",
+            )?;
+            let rows = stmt.query_map(params![collection_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        }
+    };
+
+    items.sort_by(|a, b| {
+        let ord = a
+            .1
+            .to_lowercase()
+            .cmp(&b.1.to_lowercase())
+            .then_with(|| a.1.cmp(&b.1))
+            .then_with(|| a.0.cmp(&b.0));
+        if descending {
+            ord.reverse()
+        } else {
+            ord
+        }
+    });
+
+    let now = Utc::now().to_rfc3339();
+    for (idx, (req_id, _)) in items.iter().enumerate() {
+        tx.execute(
+            "UPDATE saved_requests SET sort_order = ?2, updated_at = ?3 WHERE id = ?1",
+            params![req_id, idx as i64, now],
+        )?;
+    }
+
+    tx.commit()?;
+    list_saved_requests(conn)
+}

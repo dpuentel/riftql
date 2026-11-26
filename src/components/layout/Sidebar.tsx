@@ -1,5 +1,6 @@
 import * as React from 'react';
 import {
+  ArrowDownAZ,
   Check,
   ChevronDown,
   ChevronRight,
@@ -187,6 +188,7 @@ export function Sidebar({
   const renameSavedRequest = useWorkspaceStore((s) => s.renameSavedRequest);
   const moveSavedRequest = useWorkspaceStore((s) => s.moveSavedRequest);
   const moveFolder = useWorkspaceStore((s) => s.moveFolder);
+  const sortSavedRequests = useWorkspaceStore((s) => s.sortSavedRequests);
   const deleteSavedRequest = useWorkspaceStore((s) => s.deleteSavedRequest);
   const clearHistory = useWorkspaceStore((s) => s.clearHistory);
 
@@ -480,6 +482,20 @@ export function Sidebar({
     syncMovedCollectionRequests(new Set(movedReqIds), target.collectionId);
   };
 
+  const handleSortRequests = async (
+    collectionId: string,
+    folderId?: string,
+    direction: 'asc' | 'desc' = 'asc',
+  ) => {
+    await sortSavedRequests(collectionId, folderId, direction);
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      next.add(collectionId);
+      if (folderId) next.add(folderId);
+      return next;
+    });
+  };
+
   const q = search.trim().toLowerCase();
   const newCollectionShortcut = formatShortcutForDisplay(
     getEffectiveShortcuts(settings.customShortcuts).newCollection,
@@ -489,14 +505,20 @@ export function Sidebar({
     const childFolders = folders.filter(
       (f) => f.collectionId === collectionId && (f.parentId ?? undefined) === parentId,
     );
-    const childRequests = savedRequests.filter(
-      (r) =>
-        r.collectionId === collectionId &&
-        (r.folderId ?? undefined) === parentId &&
-        (!q ||
-          r.name.toLowerCase().includes(q) ||
-          r.url.toLowerCase().includes(q)),
-    );
+    const childRequests = savedRequests
+      .filter(
+        (r) =>
+          r.collectionId === collectionId &&
+          (r.folderId ?? undefined) === parentId &&
+          (!q ||
+            r.name.toLowerCase().includes(q) ||
+            r.url.toLowerCase().includes(q)),
+      )
+      .slice()
+      .sort(
+        (a, b) =>
+          a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt),
+      );
 
     return (
       <>
@@ -646,6 +668,16 @@ export function Sidebar({
                               <Pencil className="h-3 w-3" />
                             </button>
                           </ActionTooltip>
+                          <ActionTooltip label="Sort Requests A-Z">
+                            <button
+                              type="button"
+                              aria-label={`Sort requests in ${folder.name}`}
+                              onClick={() => void handleSortRequests(collectionId, folder.id, 'asc')}
+                              className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
+                            >
+                              <ArrowDownAZ className="h-3 w-3" />
+                            </button>
+                          </ActionTooltip>
                           <ActionTooltip label="Folder Settings">
                             <button
                               type="button"
@@ -683,6 +715,16 @@ export function Sidebar({
                   </ContextMenuItem>
                   <ContextMenuItem onSelect={() => startRename('folder', folder.id, folder.name)}>
                     Rename Folder
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    onSelect={() => void handleSortRequests(collectionId, folder.id, 'asc')}
+                  >
+                    Sort Requests A → Z
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    onSelect={() => void handleSortRequests(collectionId, folder.id, 'desc')}
+                  >
+                    Sort Requests Z → A
                   </ContextMenuItem>
                   <ContextMenuItem onSelect={() => onEditFolder(folder)}>
                     Folder Settings / Auth
@@ -1089,6 +1131,16 @@ export function Sidebar({
                                       <Pencil className="h-3 w-3" />
                                     </button>
                                   </ActionTooltip>
+                                  <ActionTooltip label="Sort Requests A-Z">
+                                    <button
+                                      type="button"
+                                      aria-label={`Sort requests in ${col.name}`}
+                                      onClick={() => void handleSortRequests(col.id, undefined, 'asc')}
+                                      className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
+                                    >
+                                      <ArrowDownAZ className="h-3 w-3" />
+                                    </button>
+                                  </ActionTooltip>
                                   <ActionTooltip label="Collection Settings">
                                     <button
                                       type="button"
@@ -1128,6 +1180,16 @@ export function Sidebar({
                             onSelect={() => startRename('collection', col.id, col.name)}
                           >
                             Rename Collection
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            onSelect={() => void handleSortRequests(col.id, undefined, 'asc')}
+                          >
+                            Sort Requests A → Z
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            onSelect={() => void handleSortRequests(col.id, undefined, 'desc')}
+                          >
+                            Sort Requests Z → A
                           </ContextMenuItem>
                           <ContextMenuItem onSelect={() => onEditCollection(col)}>
                             Collection Settings &amp; Auth

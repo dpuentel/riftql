@@ -19,7 +19,7 @@ import {
 } from '@codemirror/language';
 import { linter } from '@codemirror/lint';
 import { search, searchKeymap } from '@codemirror/search';
-import { Compartment, EditorState, type Extension } from '@codemirror/state';
+import { Annotation, Compartment, EditorState, Transaction, type Extension } from '@codemirror/state';
 import {
   EditorView,
   drawSelection,
@@ -34,6 +34,13 @@ import { graphql as cm6Graphql, updateSchema } from 'cm6-graphql';
 import type { GraphQLSchema } from 'graphql';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/store/useSettingsStore';
+
+const externalSyncAnnotation = Annotation.define<boolean>();
+
+// Allow Ctrl/Cmd+Enter to bubble out of CodeMirror so RiftQL's Send Request shortcut works inside editors
+const riftDefaultKeymap = defaultKeymap.filter(
+  (binding) => !/^(mod|ctrl|cmd)-enter$/i.test(binding.key ?? ''),
+);
 
 export type CodeEditorLanguage = 'json' | 'xml' | 'html' | 'graphql' | 'text';
 
@@ -209,7 +216,7 @@ export function CodeEditor({
       const exts: Extension[] = [
         lineNumbers(),
         search({ top: true }),
-        keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
+        keymap.of([...riftDefaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
       ];
 
       if (ph) {
@@ -252,7 +259,10 @@ export function CodeEditor({
         ]),
         featureCompRef.current.of(buildFeatureExtensions(lightweight, readOnly, placeholder)),
         EditorView.updateListener.of((update) => {
-          if (update.docChanged) {
+          if (
+            update.docChanged &&
+            !update.transactions.every((tr) => tr.annotation(externalSyncAnnotation))
+          ) {
             onChangeRef.current?.(update.state.doc.toString());
           }
         }),
@@ -269,7 +279,7 @@ export function CodeEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Sync external value changes without clobbering user typing
+  // Sync external value changes without clobbering user typing or triggering dirty state
   React.useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
@@ -277,6 +287,7 @@ export function CodeEditor({
     if (current !== value) {
       view.dispatch({
         changes: { from: 0, to: current.length, insert: value },
+        annotations: [externalSyncAnnotation.of(true), Transaction.addToHistory.of(false)],
       });
     }
   }, [value]);

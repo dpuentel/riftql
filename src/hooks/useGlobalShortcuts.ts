@@ -19,6 +19,19 @@ export function useGlobalShortcuts(
     if (paused) return;
     const bindings = getEffectiveShortcuts(customShortcuts);
 
+    const onCaptureKeyDown = (e: KeyboardEvent) => {
+      if (document.querySelector('[role="dialog"]')) return;
+      const sendCombo = bindings.sendRequest;
+      if (sendCombo && matchesShortcutEvent(e, sendCombo)) {
+        const fn = handlersRef.current.sendRequest;
+        if (fn) {
+          e.preventDefault();
+          e.stopPropagation();
+          fn();
+        }
+      }
+    };
+
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
 
@@ -52,7 +65,11 @@ export function useGlobalShortcuts(
       }
     };
 
+    window.addEventListener('keydown', onCaptureKeyDown, true);
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onCaptureKeyDown, true);
+      window.removeEventListener('keydown', onKeyDown);
+    };
   }, [customShortcuts, paused]);
 }

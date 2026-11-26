@@ -1,10 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { buildSchema } from 'graphql';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TabBar } from '@/components/layout/TabBar';
 import { RequestPane } from '@/components/request/RequestPane';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { useGlobalShortcuts } from '@/hooks/useGlobalShortcuts';
 import { useSchemaStore } from '@/store/useSchemaStore';
 import { createEmptyDraft, useTabsStore } from '@/store/useTabsStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
@@ -277,5 +278,85 @@ describe('RequestPane and TabBar', () => {
 
     expect(screen.getByText(/inherits from Folder "V1 Users":/i)).toBeInTheDocument();
     expect(screen.getByText('https://api.platform.test/v1/users/profile')).toBeInTheDocument();
+  });
+
+  it('keeps clean tabs undirty when switching, formats GraphQL variables JSON, and triggers Ctrl+Enter from editor', async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+
+    function Harness() {
+      useGlobalShortcuts({ sendRequest: onSend });
+      return (
+        <TooltipProvider>
+          <TabBar />
+          <RequestPane />
+        </TooltipProvider>
+      );
+    }
+
+    useTabsStore.setState({
+      tabs: [
+        {
+          id: 'tab-rest',
+          savedRequestId: 'r1',
+          title: 'REST One',
+          isDirty: false,
+          draft: {
+            ...createEmptyDraft('rest'),
+            id: 'r1',
+            name: 'REST One',
+            url: 'https://api.test/one',
+            body: { mode: 'json', content: '{"ok":true}' },
+          },
+          isLoading: false,
+        },
+        {
+          id: 'tab-gql',
+          savedRequestId: 'r2',
+          title: 'GQL Two',
+          isDirty: false,
+          draft: {
+            ...createEmptyDraft('graphql'),
+            id: 'r2',
+            name: 'GQL Two',
+            url: 'https://api.test/graphql',
+            graphql: {
+              query: 'query GetUser($id: ID!) { user(id: $id) { name } }',
+              variables: '{"id":"42","active":true}',
+            },
+          },
+          isLoading: false,
+        },
+      ],
+      activeTabId: 'tab-rest',
+    });
+
+    render(<Harness />);
+
+    // Open Body tab on REST tab, then switch to GQL tab and back -> neither should mark dirty!
+    await user.click(screen.getByRole('tab', { name: /^body$/i }));
+    expect(useTabsStore.getState().tabs.every((t) => !t.isDirty)).toBe(true);
+
+    await user.click(screen.getByText('GQL Two'));
+    expect(useTabsStore.getState().tabs.every((t) => !t.isDirty)).toBe(true);
+
+    await user.click(screen.getByText('REST One'));
+    expect(useTabsStore.getState().tabs.every((t) => !t.isDirty)).toBe(true);
+
+    // Switch to GraphQL tab, focus CodeMirror editor, press Ctrl+Enter -> sends without inserting blank line
+    await user.click(screen.getByText('GQL Two'));
+    const gqlEditor = screen.getByLabelText('GraphQL query editor');
+    gqlEditor.focus();
+    fireEvent.keyDown(gqlEditor, { key: 'Enter', ctrlKey: true });
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(useTabsStore.getState().tabs[1]?.draft.graphql.query).toBe(
+      'query GetUser($id: ID!) { user(id: $id) { name } }',
+    );
+
+    // Format minified GraphQL variables JSON
+    await user.click(screen.getByRole('button', { name: 'Format variables JSON' }));
+    expect(useTabsStore.getState().tabs[1]?.draft.graphql.variables).toBe(
+      '{\n  "id": "42",\n  "active": true\n}',
+    );
   });
 });

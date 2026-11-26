@@ -385,9 +385,14 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   },
 
   updateDraft: (tabId, updater) => {
+    let changed = false;
     const nextTabs = get().tabs.map((tab) => {
       if (tab.id !== tabId) return tab;
       const nextDraft = updater(tab.draft);
+      if (Object.is(nextDraft, tab.draft)) {
+        return tab;
+      }
+      changed = true;
       const nextTitle = tab.savedRequestId
         ? nextDraft.name || tab.title
         : buildTabTitle(nextDraft);
@@ -398,6 +403,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
         draft: nextDraft,
       };
     });
+    if (!changed) return;
     set({ tabs: nextTabs });
     scheduleSessionPersist(nextTabs, get().activeTabId);
   },

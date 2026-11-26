@@ -583,6 +583,7 @@ export function RequestPane({
         {draft.protocol === 'rest' && (
           <TabsContent value="body" className="flex min-h-0 flex-col p-3">
             <BodyEditor
+              tabId={tab.id}
               body={draft.body}
               onChange={(body) => updateDraft(tab.id, (prev) => ({ ...prev, body }))}
             />

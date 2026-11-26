@@ -593,8 +593,14 @@ export function SettingsModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
+      <DialogContent
+        resizable
+        storageKey="riftql-settings-modal-size"
+        minWidth={560}
+        minHeight={420}
+        className="max-w-2xl"
+      >
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Settings className="h-4 w-4 text-[var(--accent)]" />
             <span>RiftQL Settings</span>
@@ -607,7 +613,7 @@ export function SettingsModal({
         <Tabs
           value={activeTab}
           onValueChange={(value) => setActiveTab(value as SettingsTab)}
-          className="flex flex-col"
+          className="flex min-h-0 flex-1 flex-col"
         >
           <TabsList>
             <TabsTrigger value="general">General</TabsTrigger>
@@ -624,7 +630,7 @@ export function SettingsModal({
           </TabsList>
 
           {/* General Tab */}
-          <TabsContent value="general" className="flex flex-col gap-4 pt-3">
+          <TabsContent value="general" className="min-h-0 flex-1 flex flex-col gap-4 overflow-y-auto pt-3 pr-1 rift-scroll">
             <div className="flex flex-col gap-2">
               <span className="text-xs font-medium text-[var(--text-primary)]">Theme</span>
               <div className="grid grid-cols-3 gap-2">
@@ -829,7 +835,7 @@ export function SettingsModal({
           </TabsContent>
 
           {/* Network Tab */}
-          <TabsContent value="network" className="flex flex-col gap-3 pt-3">
+          <TabsContent value="network" className="min-h-0 flex-1 flex flex-col gap-3 overflow-y-auto pt-3 pr-1 rift-scroll">
             <label className="flex items-center justify-between rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-2">
               <div>
                 <div className="text-xs font-medium text-[var(--text-primary)]">
@@ -920,7 +926,7 @@ export function SettingsModal({
           </TabsContent>
 
           {/* Shortcuts Tab */}
-          <TabsContent value="shortcuts" className="flex flex-col gap-2.5 pt-3">
+          <TabsContent value="shortcuts" className="min-h-0 flex-1 flex flex-col gap-2.5 overflow-hidden pt-3">
             <div className="flex items-center justify-between gap-2">
               <div className="relative flex-1">
                 <Search className="pointer-events-none absolute top-1.5 left-2.5 h-3.5 w-3.5 text-[var(--text-secondary)]" />
@@ -978,7 +984,7 @@ export function SettingsModal({
               </div>
             )}
 
-            <div className="max-h-72 overflow-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] rift-scroll">
+            <div className="min-h-[14rem] flex-1 overflow-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] rift-scroll">
               <table className="w-full border-collapse text-left text-xs">
                 <thead>
                   <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/60 text-[0.75rem] text-[var(--text-secondary)]">
@@ -1047,7 +1053,7 @@ export function SettingsModal({
           </TabsContent>
 
           {/* Data Tab */}
-          <TabsContent value="data" className="flex flex-col gap-3 pt-3">
+          <TabsContent value="data" className="min-h-0 flex-1 flex flex-col gap-3 overflow-y-auto pt-3 pr-1 rift-scroll">
             {/* Local Data Storage Location */}
             <div className="flex flex-col gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3">
               <div className="flex items-center justify-between gap-2">
@@ -1173,7 +1179,7 @@ export function SettingsModal({
           {/* Git Sync Tab */}
           <TabsContent
             value="git-sync"
-            className="flex max-h-[62vh] flex-col gap-3 overflow-y-auto pt-3 pr-1 rift-scroll"
+            className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pt-3 pr-1 rift-scroll"
           >
             {!hasNativeFileBridge() ? (
               <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3 text-xs text-[var(--text-secondary)]">

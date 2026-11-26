@@ -116,6 +116,11 @@ export function formatGraphQL(source: string): string {
   return print(ast);
 }
 
+export function formatVariablesJson(raw: string): string {
+  if (!raw.trim()) return '{}';
+  return JSON.stringify(JSON.parse(raw), null, 2);
+}
+
 function formatDefaultInput(def?: GraphQLDefaultInput): string | undefined {
   if (!def) return undefined;
   if ('literal' in def && def.literal) {

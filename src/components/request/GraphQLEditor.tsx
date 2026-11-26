@@ -17,6 +17,7 @@ import {
   buildOperationFromField,
   extractOperations,
   formatGraphQL,
+  formatVariablesJson,
   mergeVariablesJson,
   type GraphQLRootOperationKind,
 } from '@/lib/graphql';
@@ -135,12 +136,36 @@ export function GraphQLEditor() {
   const handleFormatQuery = () => {
     try {
       const formatted = formatGraphQL(draft.graphql.query);
+      if (formatted === draft.graphql.query) return;
       updateDraft(tab.id, (prev) => ({
         ...prev,
         graphql: { ...prev.graphql, query: formatted },
       }));
     } catch {
       // Keep current text if GraphQL query has syntax errors
+    }
+  };
+
+  const variablesValidation = (() => {
+    if (!draft.graphql.variables.trim()) return null;
+    try {
+      JSON.parse(draft.graphql.variables);
+      return { valid: true };
+    } catch {
+      return { valid: false };
+    }
+  })();
+
+  const handleFormatVariables = () => {
+    try {
+      const formatted = formatVariablesJson(draft.graphql.variables);
+      if (formatted === draft.graphql.variables) return;
+      updateDraft(tab.id, (prev) => ({
+        ...prev,
+        graphql: { ...prev.graphql, variables: formatted },
+      }));
+    } catch {
+      // Keep current text if variables contain invalid JSON or template tokens
     }
   };
 
@@ -185,10 +210,14 @@ export function GraphQLEditor() {
               <Select
                 value={draft.graphql.operationName || namedOperations[0]?.name || ''}
                 onValueChange={(opName) =>
-                  updateDraft(tab.id, (prev) => ({
-                    ...prev,
-                    graphql: { ...prev.graphql, operationName: opName },
-                  }))
+                  updateDraft(tab.id, (prev) =>
+                    prev.graphql.operationName === opName
+                      ? prev
+                      : {
+                          ...prev,
+                          graphql: { ...prev.graphql, operationName: opName },
+                        },
+                  )
                 }
               >
                 <SelectTrigger className="h-6 w-44 text-[0.75rem]" aria-label="Operation">
@@ -256,6 +285,7 @@ export function GraphQLEditor() {
         {/* Query Editor */}
         <div className="min-h-[120px] flex-1">
           <CodeEditor
+            key={`gql-query-${tab.id}`}
             value={draft.graphql.query}
             language="graphql"
             graphqlSchema={schemaEntry?.schema}
@@ -294,24 +324,45 @@ export function GraphQLEditor() {
 
         {/* Collapsible & Resizable Variables Panel */}
         <div className="flex shrink-0 flex-col rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
-          <button
-            type="button"
-            onClick={() => setShowVariables((v) => !v)}
-            className="flex cursor-pointer items-center justify-between px-2.5 py-1.5 text-[0.75rem] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-          >
-            <span>Variables (JSON)</span>
-            {showVariables ? (
-              <ChevronDown className="h-3.5 w-3.5" />
-            ) : (
-              <ChevronUp className="h-3.5 w-3.5" />
-            )}
-          </button>
+          <div className="flex items-center justify-between gap-2 px-2.5 py-1">
+            <button
+              type="button"
+              onClick={() => setShowVariables((v) => !v)}
+              className="flex flex-1 cursor-pointer items-center gap-1.5 py-0.5 text-left text-[0.75rem] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            >
+              <span>Variables (JSON)</span>
+              {showVariables ? (
+                <ChevronDown className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronUp className="h-3.5 w-3.5" />
+              )}
+            </button>
+
+            <div className="flex items-center gap-1.5">
+              {variablesValidation && !variablesValidation.valid && (
+                <Badge variant="warning">Invalid JSON</Badge>
+              )}
+              <ActionTooltip label="Format Variables JSON" actionId="formatBody">
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  aria-label="Format variables JSON"
+                  onClick={handleFormatVariables}
+                >
+                  <Wand2 className="h-3 w-3" />
+                  <span>Format</span>
+                </Button>
+              </ActionTooltip>
+            </div>
+          </div>
           {showVariables && (
             <div
               style={{ height: `${variablesHeight}px` }}
               className="border-t border-[var(--border-subtle)]"
             >
               <CodeEditor
+                key={`gql-vars-${tab.id}`}
                 value={draft.graphql.variables}
                 language="json"
                 onChange={(variables) =>

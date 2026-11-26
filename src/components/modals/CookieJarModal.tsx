@@ -63,8 +63,14 @@ export function CookieJarModal({ open, onOpenChange }: CookieJarModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
+      <DialogContent
+        resizable
+        storageKey="riftql-cookie-modal-size"
+        minWidth={520}
+        minHeight={360}
+        className="max-w-3xl"
+      >
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Cookie className="h-4 w-4 text-[var(--accent)]" />
             <span>Domain Cookie Jar</span>
@@ -125,7 +131,7 @@ export function CookieJarModal({ open, onOpenChange }: CookieJarModalProps) {
         </div>
 
         {/* Cookies Table */}
-        <div className="h-52 overflow-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] rift-scroll">
+        <div className="min-h-[13rem] flex-1 overflow-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] rift-scroll">
           <table className="w-full border-collapse text-left text-xs">
             <thead>
               <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/60 text-[0.75rem] text-[var(--text-secondary)]">

@@ -288,4 +288,104 @@ describe('Sidebar collections, subfolders, delete folder, and rename actions', (
       expect(sub?.collectionId).toBe('col-2');
     });
   });
+
+  it('sorts saved requests alphabetically within a folder without disturbing other containers', async () => {
+    const user = userEvent.setup();
+    useWorkspaceStore.setState({
+      collections: [
+        {
+          id: 'col-1',
+          name: 'API',
+          description: '',
+          auth: { type: 'none' },
+          variables: [],
+          sortOrder: 0,
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
+      folders: [
+        {
+          id: 'fld-1',
+          collectionId: 'col-1',
+          name: 'Users',
+          auth: { type: 'inherit' },
+          sortOrder: 0,
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
+      savedRequests: [
+        {
+          id: 'req-z',
+          collectionId: 'col-1',
+          folderId: 'fld-1',
+          name: 'Zebra Users',
+          protocol: 'rest',
+          method: 'GET',
+          url: '/z',
+          params: [],
+          headers: [],
+          auth: { type: 'inherit' },
+          body: { mode: 'none' },
+          graphql: { query: '', variables: '{}' },
+          settings: {},
+          sortOrder: 0,
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '',
+        },
+        {
+          id: 'req-a',
+          collectionId: 'col-1',
+          folderId: 'fld-1',
+          name: 'Alpha Users',
+          protocol: 'rest',
+          method: 'GET',
+          url: '/a',
+          params: [],
+          headers: [],
+          auth: { type: 'inherit' },
+          body: { mode: 'none' },
+          graphql: { query: '', variables: '{}' },
+          settings: {},
+          sortOrder: 1,
+          createdAt: '2026-01-01T00:00:01Z',
+          updatedAt: '',
+        },
+        {
+          id: 'req-m',
+          collectionId: 'col-1',
+          folderId: 'fld-1',
+          name: 'Middle Users',
+          protocol: 'rest',
+          method: 'GET',
+          url: '/m',
+          params: [],
+          headers: [],
+          auth: { type: 'inherit' },
+          body: { mode: 'none' },
+          graphql: { query: '', variables: '{}' },
+          settings: {},
+          sortOrder: 2,
+          createdAt: '2026-01-01T00:00:02Z',
+          updatedAt: '',
+        },
+      ],
+    });
+
+    renderSidebar();
+    await user.click(screen.getByText('API'));
+    await user.click(screen.getByText('Users'));
+
+    await user.click(screen.getByRole('button', { name: 'Sort requests in Users' }));
+
+    await waitFor(() => {
+      const sorted = useWorkspaceStore
+        .getState()
+        .savedRequests.slice()
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((r) => r.name);
+      expect(sorted).toEqual(['Alpha Users', 'Middle Users', 'Zebra Users']);
+    });
+  });
 });

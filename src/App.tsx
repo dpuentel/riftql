@@ -7,7 +7,7 @@ import { SettingsModal, type SettingsTab } from '@/components/modals/SettingsMod
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useGlobalShortcuts } from '@/hooks/useGlobalShortcuts';
 import { isCurlCommand, parseCurlCommand } from '@/lib/curl-parser';
-import { formatGraphQL } from '@/lib/graphql';
+import { formatGraphQL, formatVariablesJson } from '@/lib/graphql';
 import { hasNativeFileBridge, invokeCommand, listenEvent } from '@/lib/tauri';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useTabsStore } from '@/store/useTabsStore';
@@ -126,24 +126,54 @@ export function App() {
     const active = tabs.find((t) => t.id === activeTabId);
     if (!active) return;
     if (active.draft.protocol === 'graphql') {
+      const focusedVariables = Boolean(
+        document.activeElement?.closest('[aria-label="GraphQL variables editor"]') ||
+          document.activeElement?.getAttribute('aria-label') === 'GraphQL variables editor',
+      );
+      if (focusedVariables) {
+        try {
+          const formattedVars = formatVariablesJson(active.draft.graphql.variables);
+          if (formattedVars !== active.draft.graphql.variables) {
+            updateDraft(active.id, (prev) => ({
+              ...prev,
+              graphql: { ...prev.graphql, variables: formattedVars },
+            }));
+          }
+        } catch {
+          // Ignore invalid JSON while editing
+        }
+        return;
+      }
+
+      let nextQuery = active.draft.graphql.query;
+      let nextVars = active.draft.graphql.variables;
       try {
-        const formatted = formatGraphQL(active.draft.graphql.query);
-        updateDraft(active.id, (prev) => ({
-          ...prev,
-          graphql: { ...prev.graphql, query: formatted },
-        }));
+        nextQuery = formatGraphQL(active.draft.graphql.query);
       } catch {
         // Ignore invalid GraphQL syntax while editing
+      }
+      try {
+        nextVars = formatVariablesJson(active.draft.graphql.variables);
+      } catch {
+        // Ignore invalid JSON variables while editing
+      }
+      if (nextQuery !== active.draft.graphql.query || nextVars !== active.draft.graphql.variables) {
+        updateDraft(active.id, (prev) => ({
+          ...prev,
+          graphql: { ...prev.graphql, query: nextQuery, variables: nextVars },
+        }));
       }
       return;
     }
     if (active.draft.body.mode === 'json') {
       try {
         const formatted = JSON.stringify(JSON.parse(active.draft.body.content), null, 2);
-        updateDraft(active.id, (prev) => ({
-          ...prev,
-          body: { mode: 'json', content: formatted },
-        }));
+        if (formatted !== active.draft.body.content) {
+          updateDraft(active.id, (prev) => ({
+            ...prev,
+            body: { mode: 'json', content: formatted },
+          }));
+        }
       } catch {
         // Ignore invalid JSON
       }

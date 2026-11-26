@@ -80,8 +80,18 @@ interface WorkspaceState {
     targetCollectionId: string,
     targetParentId?: string,
   ) => Promise<string[]>;
+  sortSavedRequests: (
+    collectionId: string,
+    folderId?: string,
+    direction?: 'asc' | 'desc',
+  ) => Promise<void>;
   deleteSavedRequest: (id: string) => Promise<void>;
 
+  updateEnvironmentLocal: (
+    id: string,
+    patch: { name?: string; variables?: EnvironmentVariable[] },
+  ) => void;
+  persistEnvironment: (id: string) => Promise<EnvironmentRecord | undefined>;
   upsertEnvironment: (input: {
     id?: string;
     name: string;
@@ -117,6 +127,14 @@ async function tryInvoke<T>(
     }
     throw err;
   }
+}
+
+const envSaveSeq = new Map<string, number>();
+
+function bumpEnvSeq(id: string): number {
+  const next = (envSaveSeq.get(id) ?? 0) + 1;
+  envSaveSeq.set(id, next);
+  return next;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -442,6 +460,42 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     return movedRequestIds;
   },
 
+  sortSavedRequests: async (collectionId, folderId, direction = 'asc') => {
+    const descending = direction === 'desc';
+    const sortedAll = await tryInvoke<SavedRequestRecord[]>(
+      'sort_saved_requests_cmd',
+      {
+        collectionId,
+        folderId: folderId ?? null,
+        descending,
+      },
+      () => {
+        const targetFolder = folderId ?? undefined;
+        const matching = get()
+          .savedRequests.filter(
+            (r) =>
+              r.collectionId === collectionId && (r.folderId ?? undefined) === targetFolder,
+          )
+          .slice()
+          .sort((a, b) => {
+            const cmp = a.name.localeCompare(b.name, undefined, {
+              sensitivity: 'base',
+              numeric: true,
+            });
+            return descending ? -cmp : cmp;
+          });
+        const orderMap = new Map<string, number>();
+        matching.forEach((r, idx) => orderMap.set(r.id, idx));
+        const ts = nowIso();
+        return get().savedRequests.map((r) => {
+          const nextOrder = orderMap.get(r.id);
+          return nextOrder !== undefined ? { ...r, sortOrder: nextOrder, updatedAt: ts } : r;
+        });
+      },
+    );
+    set({ savedRequests: sortedAll });
+  },
+
   deleteSavedRequest: async (id) => {
     await tryInvoke('delete_saved_request_cmd', { id }, () => undefined);
     set((state) => ({
@@ -449,13 +503,75 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }));
   },
 
+  updateEnvironmentLocal: (id, patch) => {
+    bumpEnvSeq(id);
+    const ts = nowIso();
+    set((state) => ({
+      environments: state.environments.map((e) => {
+        if (e.id !== id) return e;
+        return {
+          ...e,
+          name: patch.name !== undefined ? patch.name : e.name,
+          variables: patch.variables !== undefined ? patch.variables : e.variables,
+          updatedAt: ts,
+        };
+      }),
+    }));
+  },
+
+  persistEnvironment: async (id) => {
+    const current = get().environments.find((e) => e.id === id);
+    if (!current) return undefined;
+    const effectiveName = current.name.trim() || (current.isGlobal ? 'Global' : 'Untitled');
+    const seq = bumpEnvSeq(id);
+    const saved = await tryInvoke<EnvironmentRecord>(
+      'upsert_environment_cmd',
+      {
+        id: current.id,
+        name: effectiveName,
+        isGlobal: current.isGlobal,
+        variables: current.variables,
+      },
+      () => ({
+        ...current,
+        name: effectiveName,
+        updatedAt: nowIso(),
+      }),
+    );
+    if (envSaveSeq.get(id) === seq) {
+      set((state) => ({
+        environments: state.environments.map((e) => (e.id === saved.id ? saved : e)),
+      }));
+    }
+    return saved;
+  },
+
   upsertEnvironment: async ({ id, name, isGlobal = false, variables }) => {
+    const existing = id ? get().environments.find((e) => e.id === id) : undefined;
+    const seq = existing ? bumpEnvSeq(existing.id) : id ? bumpEnvSeq(id) : 0;
+
+    // Apply optimistic local update synchronously so controlled inputs keep cursor selection intact
+    if (existing) {
+      const ts = nowIso();
+      set((state) => ({
+        environments: state.environments.map((e) =>
+          e.id === existing.id
+            ? {
+                ...e,
+                name: name.trim() || e.name,
+                variables,
+                updatedAt: ts,
+              }
+            : e,
+        ),
+      }));
+    }
+
     const saved = await tryInvoke<EnvironmentRecord>(
       'upsert_environment_cmd',
       { id: id ?? null, name, isGlobal, variables },
       () => {
         const ts = nowIso();
-        const existing = id ? get().environments.find((e) => e.id === id) : undefined;
         return {
           id: existing?.id ?? id ?? nanoid(),
           name: name.trim(),
@@ -467,10 +583,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       },
     );
     set((state) => {
-      const exists = state.environments.some((e) => e.id === saved.id);
+      const targetId = saved.id;
+      if (seq && envSaveSeq.get(targetId) !== seq) {
+        return state;
+      }
+      const exists = state.environments.some((e) => e.id === targetId);
       return {
         environments: exists
-          ? state.environments.map((e) => (e.id === saved.id ? saved : e))
+          ? state.environments.map((e) => (e.id === targetId ? saved : e))
           : [...state.environments, saved],
       };
     });
